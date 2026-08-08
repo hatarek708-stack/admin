@@ -7,149 +7,128 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
-<!-- Firebase SDK -->
-<!-- ⚠️ بيانات المشروع مدمجة هنا مباشرة للاستخدام المحلي على الهاتف (ملف واحد فقط).
-     لا ترفع هذا الملف بهذا الشكل إلى مستودع عام على GitHub. -->
-<script>
-  window.__FIREBASE_CONFIG__ = {
-    apiKey: "AIzaSyByloEZ8jKq44JAQREi0Mm5-kpvxQqGHXY",
-    authDomain: "store-manager-7e2eb.firebaseapp.com",
-    projectId: "store-manager-7e2eb",
-    storageBucket: "store-manager-7e2eb.firebasestorage.app",
-    messagingSenderId: "898707032417",
-    appId: "1:898707032417:web:56ecb9fa3b8615f4ad9d20"
-  };
-</script>
+<!-- Supabase SDK -->
+<!-- 🔧 محوّل من Firebase إلى Supabase — يستخدم Publishable key (آمن للمتصفح) -->
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
-    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-  import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where,
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-           getDocs, addDoc, updateDoc, serverTimestamp, orderBy, runTransaction, writeBatch }
-    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  // ─── إعداد Supabase ────────────────────────────────────────────────────
+  const SUPABASE_URL = "https://tgqkathfzrnkiyxwzkbc.supabase.co";
+  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_MnDIdSEFp9UrLmvC0Y2k4g_Tp74iXHb";
 
-  const REQUIRED_FIREBASE_KEYS = ['apiKey','authDomain','projectId','storageBucket','messagingSenderId','appId'];
-  const firebaseConfig = window.__FIREBASE_CONFIG__;
-  const _missingKeys = !firebaseConfig ? REQUIRED_FIREBASE_KEYS : REQUIRED_FIREBASE_KEYS.filter(k => !firebaseConfig[k]);
-  if (_missingKeys.length) {
-    const _msg = 'إعداد Firebase غير مكتمل — الحقول الناقصة: ' + _missingKeys.join('، ') +
-      '. انسخ admin-panel/firebase-config.example.js إلى firebase-config.js واملأ بيانات مشروعك.';
-    document.body.innerHTML = '<div style="font-family:sans-serif;padding:40px;color:#b00020;background:#fff3f3;direction:rtl;line-height:1.8">' +
-      '<h2>⚠️ إعداد ناقص</h2><p>' + _msg + '</p></div>';
-    throw new Error(_msg);
-  }
+  const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+  });
 
-  const app  = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const db   = getFirestore(app);
+  window._supabase = supabase;
 
-  window._auth = auth;
-  window._db   = db;
-
-  /* ── Firestore Store Functions (للأدمن) ── */
+  /* ── دوال المتجر (Stores + Products) ── */
   window.saveStoreToFirestore = async (storeId, storeData, productsList) => {
-    // 1. Save store data (merge to preserve existing fields)
-    const storeRef = doc(db, 'stores', storeId);
-    const storeSnap = await getDoc(storeRef);
-    const storePayload = {
+    // 1. حفظ بيانات المتجر (upsert)
+    const { error: storeErr } = await supabase.from('stores').upsert({
+      id: storeId,
       name: storeData.name || '',
       title: storeData.title || '',
-      heroImg: storeData.heroImg || '',
-      hero1: storeData.hero1 || '',
-      hero2: storeData.hero2 || '',
-      heroDesc: storeData.heroDesc || '',
+      hero_desc: storeData.heroDesc || '',
       tiktok: storeData.tiktok || '',
       instagram: storeData.instagram || '',
       facebook: storeData.facebook || '',
-      webhookDirect: storeData.webhookDirect || '',
-      webhookCart: storeData.webhookCart || '',
-      topBanner: storeData.topBanner || '',
       categories: storeData.categories || [],
-      storeId: storeId,
-      updatedAt: serverTimestamp()
-    };
-    // Only set createdAt on first creation
-    if (!storeSnap.exists()) {
-      storePayload.createdAt = serverTimestamp();
-    }
-    await setDoc(storeRef, storePayload, { merge: true });
+      updated_at: new Date().toISOString(),
+    }).eq('id', storeId);
+    if (storeErr) throw storeErr;
 
-    // 2. Sync products using atomic batch (delete + add in one operation)
+    // 2. مزامنة المنتجات (حذف القديم + إضافة الجديد)
     if (productsList && productsList.length >= 0) {
-      const productsRef = collection(db, 'stores', storeId, 'products');
-      const existingSnap = await getDocs(productsRef);
-
-      const batch = writeBatch(db);
-
-      // Delete all existing products
-      existingSnap.docs.forEach(d => batch.delete(d.ref));
-
-      // Add all new products with consistent string IDs
-      productsList.forEach((p, idx) => {
-        const pid = String(p.id || (Date.now() + idx));
-        batch.set(doc(db, 'stores', storeId, 'products', pid), {
-          id: pid,  // Ensure ID is stored as string
+      await supabase.from('products').delete().eq('store_id', storeId);
+      if (productsList.length > 0) {
+        const rows = productsList.map((p, idx) => ({
+          id: String(p.id || idx),
+          store_id: storeId,
           name: p.name || '',
           price: p.price || 0,
           emoji: p.emoji || '👕',
           category: p.category || '',
-          desc: p.desc || '',
+          description: p.desc || '',
           image: p.image || '',
           images: p.images || [p.image || '', '', '', ''],
+          detail_images: p.images || [p.image || '', '', '', ''],
           sizes: p.sizes || [],
           colors: p.colors || [],
-          // حقل createdAt مطلوب لـ orderBy('createdAt','desc') في القوالب
-          createdAt: p.createdAt || serverTimestamp()
-        });
-      });
-
-      await batch.commit();
+        }));
+        const { error: prodErr } = await supabase.from('products').insert(rows);
+        if (prodErr) throw prodErr;
+      }
     }
   };
 
   window.fetchStoreFromFirestore = async (storeId) => {
-    const storeSnap = await getDoc(doc(db, 'stores', storeId));
+    const { data: storeRow } = await supabase.from('stores').select('*').eq('id', storeId).maybeSingle();
     let storeData = null;
-    if (storeSnap.exists()) storeData = storeSnap.data();
-    const productsRef = collection(db, 'stores', storeId, 'products');
-    const q = query(productsRef, orderBy('id', 'asc'));
-    const productsSnap = await getDocs(q);
-    const products = productsSnap.docs.map(d => d.data());
+    if (storeRow) {
+      storeData = {
+        name: storeRow.name,
+        title: storeRow.title,
+        heroDesc: storeRow.hero_desc,
+        tiktok: storeRow.tiktok,
+        instagram: storeRow.instagram,
+        facebook: storeRow.facebook,
+        categories: storeRow.categories || [],
+        storeId: storeRow.id,
+        uid: storeRow.owner_id,
+        template: storeRow.template,
+        theme: storeRow.theme,
+      };
+    }
+    const { data: productRows } = await supabase.from('products').select('*').eq('store_id', storeId).order('id', { ascending: true });
+    const products = (productRows || []).map(p => ({
+      id: p.id,
+      name: p.name,
+      price: Number(p.price) || 0,
+      emoji: p.emoji || '👕',
+      category: p.category || '',
+      desc: p.description || '',
+      image: p.image || '',
+      images: p.images || [],
+      sizes: p.sizes || [],
+      colors: p.colors || [],
+    }));
     return { store: storeData, products };
   };
 
   /* ── Auth ── */
-  window.doLogin = async (email, pass) => signInWithEmailAndPassword(auth, email, pass);
-  window.doLogout = () => signOut(auth);
+  window.doLogin = async (email, pass) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
+    return data;
+  };
+  window.doLogout = async () => { await supabase.auth.signOut(); };
 
-  /* ── إنشاء مستخدم في Firestore ── */
+  /* ── إنشاء مستخدم في Postgres (profiles + store_finance) ── */
   window.createFirestoreUser = async (userData) => {
     const storeId = userData.storeId || userData.repo || '';
-    // 1. وثيقة المستخدم (بدون balance/plan — هذه تُخزَّن في private/finance)
-    await setDoc(doc(db, 'users', userData.uid), {
+    // 1. إنشاء profile
+    const { error: profErr } = await supabase.from('profiles').upsert({
+      id: userData.uid,
       email: userData.email || '',
-      repo: userData.repo || '',
-      storeName: userData.storeName || '',
-      storeId,
+      store_name: userData.storeName || '',
+      store_id: storeId,
+      repo: storeId,
       role: userData.role || 'user',
-      pagesUrl: userData.pagesUrl || '',
-      uid: userData.uid,
+      pages_url: userData.pagesUrl || '',
       active: userData.active ?? true,
-      notes: userData.notes || '',
-      expiresAt: userData.expiresAt || '',
-      createdAt: userData.createdAt || new Date().toISOString()
+      phone: userData.phone || '',
     });
-    // 2. إنشاء stores/{storeId}/private/finance (النموذج الصحيح للرصيد والخطة)
+    if (profErr) throw profErr;
+    // 2. إنشاء store_finance (إن لم يوجد)
     if (storeId) {
-      const finRef = doc(db, 'stores', storeId, 'private', 'finance');
-      const finSnap = await getDoc(finRef);
-      if (!finSnap.exists()) {
-        await setDoc(finRef, {
-          balance: 400, // رصيد ترحيبي
+      const { data: existing } = await supabase.from('store_finance').select('store_id').eq('store_id', storeId).maybeSingle();
+      if (!existing) {
+        await supabase.from('store_finance').insert({
+          store_id: storeId,
+          balance: 400,
           plan: userData.plan || 'free',
-          balanceLog: [{ amount: 400, note: 'رصيد ترحيبي', at: new Date().toISOString() }],
-          createdAt: serverTimestamp()
+          balance_log: [{ amount: 400, note: 'رصيد ترحيبي', at: new Date().toISOString() }],
         });
       }
     }
@@ -157,74 +136,122 @@
 
   /* ── جلب بيانات المستخدم الحالي ── */
   window.fetchCurrentUserData = async (uid, email) => {
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('انتهت مهلة الاتصال بقاعدة البيانات')), 10000)
-    );
-    const fetchPromise = (async () => {
-      try {
-        const directSnap = await getDoc(doc(db, 'users', uid));
-        if (directSnap.exists()) return directSnap.data();
-      } catch(e) {}
-      const q = query(collection(db, 'users'), where('email', '==', email));
-      const snap = await getDocs(q);
-      if (snap.empty) throw new Error('الحساب غير مسجّل في النظام — تأكد من إضافة بياناتك في Firestore');
-      return snap.docs[0].data();
-    })();
-    return await Promise.race([fetchPromise, timeoutPromise]);
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+    if (error || !data) throw new Error('الحساب غير مسجّل في النظام — تأكد من إضافة بياناتك في profiles');
+    return {
+      id: data.id,
+      uid: data.id,
+      email: data.email,
+      storeName: data.store_name,
+      storeId: data.store_id,
+      repo: data.repo,
+      role: data.role,
+      pagesUrl: data.pages_url,
+      active: data.active,
+      phone: data.phone,
+      createdAt: data.created_at,
+    };
   };
 
   /* ── جلب جميع المستخدمين ── */
   window.fetchAllUsers = async () => {
-    const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, docId: d.id, ...d.data() }));
+    const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(d => ({
+      id: d.id,
+      docId: d.id,
+      uid: d.id,
+      email: d.email,
+      storeName: d.store_name,
+      storeId: d.store_id,
+      repo: d.repo,
+      role: d.role,
+      pagesUrl: d.pages_url,
+      active: d.active,
+      phone: d.phone,
+      createdAt: d.created_at,
+    }));
   };
 
   /* ── جلب طلبات الشحن ── */
   window.fetchChargeRequests = async () => {
-    const q = query(collection(db, 'chargeRequests'), orderBy('createdAt', 'desc'));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, docId: d.id, ...d.data() }));
+    const { data, error } = await supabase.from('charge_requests').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(d => ({
+      id: d.id,
+      docId: d.id,
+      uid: d.user_id,
+      storeId: d.store_id,
+      storeName: d.store_name,
+      email: d.email,
+      amount: d.amount,
+      receiptUrl: d.receipt_url,
+      status: d.status,
+      note: d.note,
+      createdAt: d.created_at,
+    }));
   };
 
-  /* ── تحديث رصيد المتجر (النموذج الصحيح: stores/{storeId}/private/finance) ── */
+  /* ── تحديث رصيد المتجر (store_finance) ── */
   window.updateUserBalance = async (storeId, amount, note) => {
-    const ref = doc(db, 'stores', storeId, 'private', 'finance');
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      await updateDoc(ref, { balance: amount, updatedAt: serverTimestamp() });
-    }
+    const { data: fin } = await supabase.from('store_finance').select('balance_log').eq('store_id', storeId).maybeSingle();
+    const log = fin?.balance_log || [];
+    if (note) log.push({ amount, note, at: new Date().toISOString() });
+    const { error } = await supabase.from('store_finance').update({
+      balance: amount,
+      balance_log: log,
+      updated_at: new Date().toISOString(),
+    }).eq('store_id', storeId);
+    if (error) throw error;
   };
 
-  /* ── تحديث خطة المتجر في كلا الموقعين (users + private/finance) ── */
+  /* ── تحديث خطة المتجر (profiles + store_finance) ── */
   window.updateStorePlan = async (docId, storeId, plan) => {
-    // تحديث users collection (للعرض في لوحة الإدارة)
-    await updateDoc(doc(db, 'users', docId), { plan, updatedAt: serverTimestamp() });
-    // تحديث النموذج الحقيقي المستخدم من قواعد Firestore
+    // تحديث profile
+    await supabase.from('profiles').update({ updated_at: new Date().toISOString() }).eq('id', docId);
+    // تحديث store_finance
     if (storeId) {
-      const finRef = doc(db, 'stores', storeId, 'private', 'finance');
-      const snap = await getDoc(finRef);
-      if (snap.exists()) {
-        await updateDoc(finRef, { plan, updatedAt: serverTimestamp() });
+      const { data: existing } = await supabase.from('store_finance').select('store_id').eq('store_id', storeId).maybeSingle();
+      if (existing) {
+        await supabase.from('store_finance').update({
+          plan,
+          updated_at: new Date().toISOString(),
+        }).eq('store_id', storeId);
       } else {
-        await setDoc(finRef, { balance: 0, plan, balanceLog: [], createdAt: serverTimestamp() });
+        await supabase.from('store_finance').insert({
+          store_id: storeId,
+          balance: 0,
+          plan,
+        });
       }
     }
   };
 
-  /* ── حذف مستخدم ── */
+  /* ── حذف مستخدم (profile فقط — auth.users يحتاج service_role) ── */
   window.deleteUserDoc = async (userId) => {
-    await deleteDoc(doc(db, 'users', userId));
+    await supabase.from('profiles').delete().eq('id', userId);
   };
 
   /* ── تحديث بيانات مستخدم ── */
   window.updateFirestoreUser = async (docId, updates) => {
-    await updateDoc(doc(db, 'users', docId), { ...updates, updatedAt: serverTimestamp() });
+    const row = {};
+    if (updates.email !== undefined) row.email = updates.email;
+    if (updates.storeName !== undefined) row.store_name = updates.storeName;
+    if (updates.storeId !== undefined) row.store_id = updates.storeId;
+    if (updates.repo !== undefined) row.repo = updates.repo;
+    if (updates.role !== undefined) row.role = updates.role;
+    if (updates.active !== undefined) row.active = updates.active;
+    if (updates.notes !== undefined) row.notes = updates.notes;
+    if (updates.expiresAt !== undefined) row.expires_at = updates.expiresAt;
+    if (updates.phone !== undefined) row.phone = updates.phone;
+    row.updated_at = new Date().toISOString();
+    const { error } = await supabase.from('profiles').update(row).eq('id', docId);
+    if (error) throw error;
   };
 
   /* ── حذف وثيقة مستخدم ── */
   window.deleteFirestoreUser = async (docId) => {
-    await deleteDoc(doc(db, 'users', docId));
+    await supabase.from('profiles').delete().eq('id', docId);
   };
 
   /* ── الموافقة على طلب شحن ── */
@@ -232,56 +259,90 @@
     if (!storeId) throw new Error('معرّف المتجر (storeId) مطلوب لتحديث الرصيد');
     const parsedAmount = Number(amount);
     if (!parsedAmount || parsedAmount <= 0 || isNaN(parsedAmount)) throw new Error('المبلغ غير صالح');
-    const reqRef     = doc(db, 'chargeRequests', reqId);
-    // المسار الصحيح: stores/{storeId}/private/finance (وليس users/{uid})
-    const financeRef = doc(db, 'stores', storeId, 'private', 'finance');
-    await runTransaction(db, async (tx) => {
-      // قراءة طلب الشحن داخل الـ transaction لمنع الموافقة المزدوجة
-      const reqSnap = await tx.get(reqRef);
-      if (!reqSnap.exists()) throw new Error('الطلب غير موجود');
-      if (reqSnap.data().status !== 'pending') throw new Error('تم معالجة هذا الطلب مسبقاً');
-      const finSnap = await tx.get(financeRef);
-      const cur = finSnap.exists() ? (finSnap.data().balance || 0) : 0;
-      const log = finSnap.exists() ? (finSnap.data().balanceLog || []) : [];
-      log.push({ amount: parsedAmount, note: 'شحن معتمد', by: email, at: new Date().toISOString() });
-      // تحديث طلب الشحن وتحديث الرصيد في عملية ذرية واحدة
-      tx.update(reqRef, { status: 'approved', approvedAt: serverTimestamp() });
-      if (finSnap.exists()) {
-        tx.update(financeRef, { balance: cur + parsedAmount, balanceLog: log, updatedAt: serverTimestamp() });
-      } else {
-        // إنشاء وثيقة finance إذا لم تكن موجودة (للمتاجر القديمة)
-        tx.set(financeRef, {
-          balance: parsedAmount,
-          plan: 'free',
-          balanceLog: log,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-      }
-    });
+
+    // 1. التحقق من حالة الطلب
+    const { data: req } = await supabase.from('charge_requests').select('status').eq('id', reqId).maybeSingle();
+    if (!req) throw new Error('الطلب غير موجود');
+    if (req.status !== 'pending') throw new Error('تم معالجة هذا الطلب مسبقاً');
+
+    // 2. تحديث حالة الطلب
+    const { error: updErr } = await supabase.from('charge_requests').update({
+      status: 'approved',
+    }).eq('id', reqId);
+    if (updErr) throw updErr;
+
+    // 3. تحديث الرصيد في store_finance
+    const { data: fin } = await supabase.from('store_finance').select('balance, balance_log').eq('store_id', storeId).maybeSingle();
+    const curBal = fin?.balance || 0;
+    const log = fin?.balance_log || [];
+    log.push({ amount: parsedAmount, note: 'شحن معتمد', by: email, at: new Date().toISOString() });
+
+    if (fin) {
+      await supabase.from('store_finance').update({
+        balance: curBal + parsedAmount,
+        balance_log: log,
+        updated_at: new Date().toISOString(),
+      }).eq('store_id', storeId);
+    } else {
+      await supabase.from('store_finance').insert({
+        store_id: storeId,
+        balance: parsedAmount,
+        plan: 'free',
+        balance_log: log,
+      });
+    }
   };
 
   /* ── رفض طلب شحن ── */
   window.rejectCharge = async (reqId) => {
-    await updateDoc(doc(db, 'chargeRequests', reqId), { status: 'rejected', rejectedAt: serverTimestamp() });
+    const { error } = await supabase.from('charge_requests').update({ status: 'rejected' }).eq('id', reqId);
+    if (error) throw error;
   };
 
   /* ── حذف طلب شحن ── */
   window.deleteChargeRequest = async (reqId) => {
-    await deleteDoc(doc(db, 'chargeRequests', reqId));
+    await supabase.from('charge_requests').delete().eq('id', reqId);
   };
 
-  /* ── كشف دوال Firestore للسكريبتات الخارجية ── */
-  window._firestoreFns = { collection, getDocs, writeBatch, doc, deleteDoc, where, query, getDoc, setDoc, serverTimestamp };
-  window._firebaseReady = true;
+  /* ── كشف دوال Supabase للسكريبتات الخارجية ── */
+  window._firestoreFns = { supabase };
+  window._firebaseReady = true;  // نُبقي الاسم للتوافق مع الكود القديم
   if (typeof window._onFirebaseReady === 'function') window._onFirebaseReady();
 
-  /* ── Listener Auth ── */
-  onAuthStateChanged(auth, async (user) => {
+  /* ── Listener Auth (يستبدل onAuthStateChanged) ── */
+  // 🔧 فحص أولي + اشتراك في تغييرات الجلسة
+  supabase.auth.getSession().then(async ({ data: { session } }) => {
+    if (session?.user) {
+      window._currentAuthUser = session.user;
+      try {
+        const data = await window.fetchCurrentUserData(session.user.id, session.user.email);
+        if (data.role !== 'admin') throw new Error('ليس لديك صلاحية الوصول');
+        window._adminData = data;
+        if (window.resetLoginBtn) window.resetLoginBtn();
+        showScreen('dashboard');
+        afterAuth(session.user.email);
+        loadUsers();
+        loadChargeRequests();
+      } catch(e) {
+        window._currentAuthUser = null;
+        await supabase.auth.signOut();
+        if (window.resetLoginBtn) window.resetLoginBtn();
+        showScreen('login');
+        showLoginError(e.message);
+      }
+    } else {
+      window._currentAuthUser = null;
+      if (window.resetLoginBtn) window.resetLoginBtn();
+      showScreen('login');
+    }
+  });
+
+  supabase.auth.onAuthStateChange(async (_event, session) => {
+    const user = session?.user ?? null;
     if (user) {
       window._currentAuthUser = user;
       try {
-        const data = await window.fetchCurrentUserData(user.uid, user.email);
+        const data = await window.fetchCurrentUserData(user.id, user.email);
         if (data.role !== 'admin') throw new Error('ليس لديك صلاحية الوصول');
         window._adminData = data;
         if (window.resetLoginBtn) window.resetLoginBtn();
@@ -291,7 +352,7 @@
         loadChargeRequests();
       } catch(e) {
         window._currentAuthUser = null;
-        await signOut(auth);
+        await supabase.auth.signOut();
         if (window.resetLoginBtn) window.resetLoginBtn();
         showScreen('login');
         showLoginError(e.message);
@@ -2064,24 +2125,24 @@ async function confirmDelete(docId, repoName) {
   setProgress(10);
   showToast('جاري الحذف...', 'info');
 
-  let firestoreOk = false, warnings = [], errors = [];
+  let dbOk = false, warnings = [], errors = [];
 
   setProgress(30);
 
   try {
     await window.deleteFirestoreUser(docId);
-    firestoreOk = true;
+    dbOk = true;
   } catch(e) {
     const msg = e.message || '';
     if (msg.includes('Firestore')) {
-      firestoreOk = true;
+      dbOk = true;
       warnings.push(msg);
     } else {
       errors.push(msg);
     }
   }
 
-  if (firestoreOk) {
+  if (dbOk) {
     allUsers = allUsers.filter(x => x.docId !== docId);
   }
 
@@ -2232,36 +2293,30 @@ async function ghFetch(path, opts = {}) {
   return data;
 }
 
-// دالة لحذف متجر من Firestore نهائياً
+// دالة لحذف متجر من Supabase نهائياً
 async function deleteStoreRepo(repoName) {
-  const { collection, getDocs, writeBatch, doc, getDoc, deleteDoc, where, query } = window._firestoreFns;
-  const db = window._db;
+  const supabase = window._supabase;
   try {
-    // جلب uid المالك قبل الحذف (لحذف userStoreIndex لاحقاً)
-    const storeSnap = await getDoc(doc(db, 'stores', repoName));
-    const ownerUid  = storeSnap.exists() ? (storeSnap.data().uid || '') : '';
+    // جلب owner_id قبل الحذف
+    const { data: store } = await supabase.from('stores').select('owner_id').eq('id', repoName).maybeSingle();
+    const ownerUid = store?.owner_id || '';
 
-    // حذف المنتجات أولاً
-    const productsRef = collection(db, 'stores', repoName, 'products');
-    const prodsSnap   = await getDocs(productsRef);
-    const batch       = writeBatch(db);
-    prodsSnap.docs.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-
-    // حذف بيانات المتجر
-    await deleteDoc(doc(db, 'stores', repoName));
-
-    // ✅ حذف userStoreIndex لإتاحة إنشاء متجر جديد للمستخدم مستقبلاً
+    // حذف المنتجات
+    await supabase.from('products').delete().eq('store_id', repoName);
+    // حذف store_finance
+    await supabase.from('store_finance').delete().eq('store_id', repoName);
+    // حذف store_shipping
+    await supabase.from('store_shipping').delete().eq('store_id', repoName);
+    // حذف الطلبات المرتبطة
+    await supabase.from('orders').delete().eq('store_id', repoName);
+    // حذف الإشعارات
+    await supabase.from('store_notifications').delete().eq('store_id', repoName);
+    // حذف المتجر
+    await supabase.from('stores').delete().eq('id', repoName);
+    // تحديث profile (إزالة store_id)
     if (ownerUid) {
-      await deleteDoc(doc(db, 'userStoreIndex', ownerUid));
+      await supabase.from('profiles').update({ store_id: null, store_name: null, repo: null }).eq('id', ownerUid);
     }
-
-    // حذف الطلبات المرتبطة بالمتجر
-    const ordersQ    = query(collection(db, 'orders'), where('store', '==', repoName));
-    const ordersSnap = await getDocs(ordersQ);
-    const ordersBatch = writeBatch(db);
-    ordersSnap.docs.forEach(d => ordersBatch.delete(d.ref));
-    await ordersBatch.commit();
 
     showToast('✅ تم حذف المتجر بنجاح', 'success');
     loadUsers();
@@ -2271,69 +2326,53 @@ async function deleteStoreRepo(repoName) {
 }
 
 
-// إنشاء متجر جديد في Firestore
-// ✅ يستقبل userUid لحقظ المالك في stores/{storeId}.uid ولكتابة userStoreIndex
+// إنشاء متجر جديد في Supabase
 async function createStoreRepo(repoName, storeId, templateChoice, userUid) {
-  const { doc, getDoc, setDoc, serverTimestamp, collection, writeBatch } = window._firestoreFns;
-  const db = window._db;
-
-  // القالب الافتراضي هو noir (black.html)؛ يمكن تمريره كـ 'zephyr' لـ white.html
+  const supabase = window._supabase;
   const template = (templateChoice || 'noir').toLowerCase();
 
-  // التأكد من عدم وجود المتجر مسبقاً — إن وجد نحدّث فقط بدلاً من الكتابة الكاملة
-  const existingSnap = await getDoc(doc(db, 'stores', storeId));
-
-  // إنشاء بيانات المتجر الافتراضية
-  // 🔒 SECURITY FIX (ثغرة #1): لم يعد الرصيد/الباقة يُخزَّنان في المستند العام —
-  // ينتقلان إلى stores/{storeId}/private/finance (يقرأه فقط المالك أو الأدمن)
-  const storeData = {
+  // 1. إنشاء المتجر
+  const { error: storeErr } = await supabase.from('stores').upsert({
+    id: storeId,
+    owner_id: userUid || null,
     name: storeId,
-    title: storeId + ' — متجرك الإلكتروني',
-    heroImg: '',
-    hero1: 'أهلاً بك في',
-    hero2: storeId,
-    heroDesc: 'اكتشف منتجاتنا المميزة بأسعار تنافسية',
-    tiktok: '',
-    instagram: '',
-    facebook: '',
-    webhookDirect: '',
-    webhookCart: '',
-    topBanner: '',
-    categories: [],
-    storeId: storeId,
-    // ✅ حقل uid مطلوب لقاعدة Firestore (storeOwnerOf) وللأدمن لمعرفة المالك
-    uid: userUid || '',
-    template: template,          // ← مطلوب لتوجيه black.html ↔ white.html تلقائياً
-    createdAt: existingSnap.exists() ? existingSnap.data().createdAt : serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
+    template: template,
+    theme: template,
+    shipping: [],
+    shipping_provider: 'manual',
+    store_slug: storeId,
+  }).eq('id', storeId);
+  if (storeErr) throw storeErr;
 
-  const financeSnap = await getDoc(doc(db, 'stores', storeId, 'private', 'finance'));
-  const financeData = {
-    plan: financeSnap.exists() ? (financeSnap.data().plan || 'free') : 'free',
-    balance: financeSnap.exists() ? (financeSnap.data().balance || 0) : 0,
-    balanceLog: financeSnap.exists() ? (financeSnap.data().balanceLog || []) : [],
-    transactions: financeSnap.exists() ? (financeSnap.data().transactions || []) : [],
-  };
-
-  // ✅ كتابة ذرية: المتجر + بياناته المالية الخاصة + userStoreIndex في batch واحد
-  const batch = writeBatch(db);
-  batch.set(doc(db, 'stores', storeId), storeData);
-  batch.set(doc(db, 'stores', storeId, 'private', 'finance'), financeData);
-  if (userUid) {
-    // يمنع إنشاء متجر ثانٍ لنفس المستخدم (مطابقة للـ SignupScreen.tsx)
-    batch.set(doc(db, 'userStoreIndex', userUid), {
-      storeId,
-      createdAt: serverTimestamp()
+  // 2. إنشاء store_finance (إن لم يوجد)
+  const { data: existingFin } = await supabase.from('store_finance').select('store_id').eq('store_id', storeId).maybeSingle();
+  if (!existingFin) {
+    await supabase.from('store_finance').insert({
+      store_id: storeId,
+      plan: 'free',
+      balance: 0,
+      balance_log: [],
     });
   }
-  await batch.commit();
 
-  // رابط المتجر — كلا القالبين يوجّهان تلقائياً بناءً على حقل template
-  const templateFile = template === 'zephyr' ? 'white.html' : 'black.html';
+  // 3. إنشاء store_shipping (إن لم يوجد)
+  const { data: existingShip } = await supabase.from('store_shipping').select('store_id').eq('store_id', storeId).maybeSingle();
+  if (!existingShip) {
+    await supabase.from('store_shipping').insert({ store_id: storeId });
+  }
+
+  // 4. تحديث profile (إن وُجد userUid)
+  if (userUid) {
+    await supabase.from('profiles').update({
+      store_id: storeId,
+      store_name: storeId,
+      repo: storeId,
+    }).eq('id', userUid);
+  }
+
   return {
     repo: storeId,
-    pagesUrl: `https://noirshop-5mj.pages.dev/${templateFile}?store=${encodeURIComponent(storeId)}`
+    pagesUrl: `https://${storeId}.shopevelo.me`
   };
 }
 
@@ -2394,33 +2433,42 @@ async function addNewUser() {
     const expiresAtDate = new Date(Date.now() + daysTotal * 86400000);
     const expiresAt = expiresAtDate.toISOString();
 
-    // 🔒 SECURITY FIX (ثغرة #3): كان هذا المفتاح مثبتاً مباشرة في الكود (نسخة
-    // ثانية من نفس المفتاح المصلَح أعلاه). الآن يُقرأ من نفس ملف التهيئة الموحّد.
-    const apiKey = window.__FIREBASE_CONFIG__.apiKey;
-    const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, returnSecureToken: false })
-      }
-    );
-    const data = await res.json();
-    if (data.error) {
+    // 🔧 تحويل: استخدام Supabase Auth لإنشاء مستخدم جديد
+    // ملاحظة: admin panel يستخدم publishable key — يمكن إنشاء مستخدم عبر signUp
+    // لكن Confirm email مفعّل. للأدمن، نستخدم Worker endpoint لإنشاء المستخدم بدون تأكيد.
+    const WORKER_URL = 'https://ai-proxy-worker.hatarek708.workers.dev';
+    let newUserId = '';
+
+    // محاولة إنشاء عبر Worker (يتطلب auth token الأدمن)
+    const { data: sessionData } = await supabase.auth.getSession();
+    const adminToken = sessionData?.session?.access_token;
+
+    const createRes = await fetch(`${WORKER_URL}/admin/create-user`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ email, password }),
+    });
+    const createData = await createRes.json();
+
+    if (!createRes.ok) {
       const msgs = {
-        'EMAIL_EXISTS':          'هذا الإيميل مسجّل مسبقاً في الفايربيز',
-        'WEAK_PASSWORD':         'كلمة المرور ضعيفة جداً',
-        'INVALID_EMAIL':         'الإيميل غير صالح',
-        'TOO_MANY_ATTEMPTS':     'محاولات كثيرة جدا.. انتظر'
+        'User already registered': 'هذا الإيميل مسجّل مسبقاً',
+        'Password should be': 'كلمة المرور ضعيفة جداً',
+        'Invalid email': 'الإيميل غير صالح',
       };
-      throw new Error(msgs[data.error.message] || data.error.message);
+      const errMsg = createData.error || 'فشل إنشاء المستخدم';
+      const matched = Object.keys(msgs).find(k => errMsg.includes(k));
+      throw new Error(matched ? msgs[matched] : errMsg);
     }
+    newUserId = createData.user_id;
 
     let pagesUrl = '';
     if (autoCreate) {
-      btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;margin:0;"></div> ربط الدومين بنظام NoirShop ...';
-      // ✅ تمرير uid المستخدم الجديد لحفظه في stores/{storeId}.uid وفي userStoreIndex
-      const result = await createStoreRepo(repo, repo, template, data.localId);
+      btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;margin:0;"></div> إنشاء المتجر...';
+      const result = await createStoreRepo(repo, repo, template, newUserId);
       pagesUrl = result.pagesUrl;
     }
 
@@ -2430,7 +2478,7 @@ async function addNewUser() {
       plan,
       storeId: repo,
       pagesUrl,
-      uid: data.localId,
+      uid: newUserId,
       active: true,
       expiresAt,
       createdAt: new Date().toISOString()
