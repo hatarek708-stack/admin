@@ -99,7 +99,14 @@
   /* ── Auth ── */
   window.doLogin = async (email, pass) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
-    if (error) throw error;
+    if (error) {
+      // تحويل رسائل Supabase إلى رسائل عربية
+      const msg = error.message || '';
+      if (msg.includes('Invalid login credentials')) throw { code: 'auth/invalid-credential', message: msg };
+      if (msg.includes('Email not confirmed')) throw { code: 'EMAIL_NOT_CONFIRMED', message: msg };
+      if (msg.includes('rate limit')) throw { code: 'auth/too-many-requests', message: msg };
+      throw { code: 'UNKNOWN', message: msg };
+    }
     return data;
   };
   window.doLogout = async () => { await supabase.auth.signOut(); };
@@ -1822,16 +1829,25 @@ async function handleLogin() {
   try {
     await window.doLogin(email, pass);
     clearTimeout(loginTimeout);
+    // ✅ لا نُعيد الزر هنا — onAuthStateChange سيتولى التوجيه
+    // وإذا فشل التوجيه (ليس أدمن)، سيتم عرض الخطأ هناك
   } catch(e) {
     clearTimeout(loginTimeout);
-    const msgs = {
-      'auth/invalid-credential': 'الإيميل أو كلمة المرور غير صحيحة',
-      'auth/wrong-password':     'الإيميل أو كلمة المرور غير صحيحة',
-      'auth/user-not-found':     'الحساب غير موجود',
-      'auth/too-many-requests':  'محاولات كثيرة — انتظر قليلاً',
-      'auth/network-request-failed': 'خطأ في الشبكة — تحقق من اتصالك',
-    };
-    showLoginError(msgs[e.code] || 'حدث خطأ، حاول مرة أخرى');
+    const code = e.code || '';
+    const msg = e.message || '';
+    let displayMsg = 'حدث خطأ، حاول مرة أخرى';
+    if (code === 'auth/invalid-credential' || msg.includes('Invalid login credentials')) {
+      displayMsg = 'الإيميل أو كلمة المرور غير صحيحة';
+    } else if (code === 'EMAIL_NOT_CONFIRMED' || msg.includes('Email not confirmed')) {
+      displayMsg = 'هذا الحساب غير مؤكد — تواصل مع الأدمن لتفعيله';
+    } else if (code === 'auth/too-many-requests' || msg.includes('rate limit')) {
+      displayMsg = 'محاولات كثيرة — انتظر قليلاً';
+    } else if (msg.includes('network') || msg.includes('fetch')) {
+      displayMsg = 'خطأ في الشبكة — تحقق من اتصالك';
+    } else if (msg) {
+      displayMsg = msg;
+    }
+    showLoginError(displayMsg);
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-shield-alt"></i> دخول آمن';
   }
@@ -1914,18 +1930,20 @@ function updateStats() {
 // ════════════════════════════════════
 function getUserStatus(u, now = Date.now()) {
   if (!u.active) return 'paused';
-  if (u.expiresAt) {
-    const exp = (u.expiresAt.seconds ? u.expiresAt.seconds * 1000 : new Date(u.expiresAt).getTime());
+  if (u.expiresAt || u.expires_at) {
+    const exp = u.expiresAt ? (u.expiresAt.seconds ? u.expiresAt.seconds * 1000 : new Date(u.expiresAt).getTime())
+                            : new Date(u.expires_at).getTime();
     if (exp < now) return 'expired';
   }
   return 'active';
 }
 
 function getExpiryInfo(u) {
-  if (!u.expiresAt) return { date: '—', diff: null };
-  const ts = u.expiresAt.seconds ? u.expiresAt.seconds * 1000 : new Date(u.expiresAt).getTime();
+  const expRaw = u.expiresAt || u.expires_at;
+  if (!expRaw) return { date: '—', diff: null };
+  const ts = expRaw.seconds ? expRaw.seconds * 1000 : new Date(expRaw).getTime();
   const date = new Date(ts).toLocaleDateString('ar-DZ');
-  const diff = ts - Date.now(); // ms
+  const diff = ts - Date.now();
   return { date, diff, ts };
 }
 
@@ -1977,8 +1995,8 @@ function renderTable() {
     const sa = getUserStatus(a, now), sb = getUserStatus(b, now);
     const order = { expired: 0, paused: 1, active: 2 };
     if (order[sa] !== order[sb]) return order[sa] - order[sb];
-    const ea = a.expiresAt ? (a.expiresAt.seconds ? a.expiresAt.seconds * 1000 : new Date(a.expiresAt).getTime()) : Infinity;
-    const eb = b.expiresAt ? (b.expiresAt.seconds ? b.expiresAt.seconds * 1000 : new Date(b.expiresAt).getTime()) : Infinity;
+    const ea = (a.expiresAt || a.expires_at) ? ((a.expiresAt?.seconds ? a.expiresAt.seconds*1000 : new Date(a.expiresAt||a.expires_at).getTime())) : Infinity;
+    const eb = (b.expiresAt || b.expires_at) ? ((b.expiresAt?.seconds ? b.expiresAt.seconds*1000 : new Date(b.expiresAt||b.expires_at).getTime())) : Infinity;
     return ea - eb;
   });
 
@@ -2866,7 +2884,9 @@ async function runContentReview() {
     showToast('أدخل نصاً أو رابط صورة للفحص', 'error');
     return;
   }
-  if (!window._auth?.currentUser) {
+  // ✅ استخدام Supabase session بدل Firebase _auth
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
     showToast('يجب تسجيل الدخول أولاً', 'error');
     return;
   }
@@ -2876,7 +2896,7 @@ async function runContentReview() {
   resultEl.style.display = 'none';
 
   try {
-    const idToken = await window._auth.currentUser.getIdToken();
+    const idToken = session.access_token;
     const body = {};
     if (text)     body.text     = text;
     if (imageUrl) body.imageUrl = imageUrl;
