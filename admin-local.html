@@ -3618,8 +3618,31 @@ App.Plans = {
       grid.innerHTML = '<div class="card"><div class="card-body" style="padding:40px;text-align:center;">لا توجد باقات — أنشئ باقتك الأولى</div></div>';
       return;
     }
+    // قوالب متاحة للعرض
+    const ALL_TEMPLATES = [
+      { id: 'zephyr', name: 'Zephyr' },
+      { id: 'noir', name: 'Noir' },
+      { id: 'neon', name: 'Neon' }
+    ];
     grid.innerHTML = State.plans.map(p => {
-      const features = Array.isArray(p.features) ? p.features : (typeof p.features === 'string' ? JSON.parse(p.features || '[]') : []);
+      const features = Array.isArray(p.features) ? p.features : (typeof p.features === 'string' ? (() => { try { return JSON.parse(p.features || '[]'); } catch(_) { return []; } })() : []);
+      const allowedTemplates = Array.isArray(p.allowed_templates) ? p.allowed_templates : (typeof p.allowed_templates === 'string' ? (() => { try { return JSON.parse(p.allowed_templates || '[]'); } catch(_) { return []; } })() : []);
+      const templatesLabels = allowedTemplates.length > 0
+        ? allowedTemplates.map(t => escapeHtml(t)).join('، ')
+        : '<span class="text-muted">—</span>';
+      // بطاقات الحدود والقيود
+      const limits = [
+        { label: 'منتجات', value: p.max_products === 0 ? '∞' : p.max_products },
+        { label: 'طلبات', value: p.max_orders === 0 ? '∞' : p.max_orders },
+        { label: 'يوميًا', value: p.daily_orders_limit === 0 ? '∞' : p.daily_orders_limit },
+        { label: 'عمولة', value: (p.commission_rate || 0) + ' دج' }
+      ];
+      const toggles = [
+        { label: 'AI', on: p.ai_features },
+        { label: 'شحن', on: p.shipping_integration },
+        { label: 'تقارير', on: p.advanced_reports },
+        { label: 'PDF/CSV', on: p.export_pdf_csv }
+      ];
       return `
         <div class="card" style="display:flex; flex-direction:column;">
           <div style="padding: 20px; flex: 1;">
@@ -3628,7 +3651,26 @@ App.Plans = {
               <span class="badge ${p.is_active ? 'badge-success' : 'badge-default'}">${p.is_active ? 'نشط' : 'معطّل'}</span>
             </div>
             <div style="font-size:28px; font-weight:800; color: var(--primary); margin-bottom:4px;">${fmtDZD(p.price_monthly)}</div>
-            <div class="text-sm text-muted mb-4">شهريًا • ${fmtDZD(p.price_yearly)} سنويًا • ${p.duration_days} يوم</div>
+            <div class="text-sm text-muted mb-3">شهريًا • ${fmtDZD(p.price_yearly)} سنويًا • ${p.duration_days} يوم</div>
+            
+            <!-- بطاقات القيود -->
+            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:12px;">
+              ${limits.map(l => `
+                <div style="padding:8px 4px; background:var(--gray-50); border-radius:6px; text-align:center;">
+                  <div style="font-size:11px; color:var(--gray-500);">${l.label}</div>
+                  <div style="font-size:14px; font-weight:700; color:var(--gray-800);">${l.value}</div>
+                </div>
+              `).join('')}
+            </div>
+            
+            <!-- شارات الميزات -->
+            <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px;">
+              ${toggles.map(t => `<span class="badge ${t.on ? 'badge-success' : 'badge-default'}" style="font-size:10px;">${t.label} ${t.on ? '✓' : '✗'}</span>`).join('')}
+            </div>
+            
+            <!-- القوالب المسموح بها -->
+            <div style="font-size:11px; color:var(--gray-500); margin-bottom:8px;">القوالب: ${templatesLabels}</div>
+            
             <ul style="list-style:none; padding:0; margin-bottom:16px;">
               ${features.map(f => `<li style="padding:5px 0; font-size:13px; display:flex; gap:8px; align-items:flex-start;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="3" style="width:16px; height:16px; flex-shrink:0; margin-top:3px;"><polyline points="20 6 9 17 4 12"/></svg>
@@ -3682,6 +3724,77 @@ App.Plans = {
             <label>ترتيب العرض</label>
             <input type="number" id="newPlanSort" min="0" value="1" />
           </div>
+          
+          <!-- ─── الحدود والقيود ─── -->
+          <div class="form-field">
+            <label>عدد المنتجات (0 = غير محدود)</label>
+            <input type="number" id="newPlanMaxProducts" min="0" value="20" />
+            <span class="hint">الحد الأقصى لعدد المنتجات في المتجر</span>
+          </div>
+          <div class="form-field">
+            <label>عدد الطلبات الإجمالي (0 = غير محدود)</label>
+            <input type="number" id="newPlanMaxOrders" min="0" value="1000" />
+          </div>
+          <div class="form-field">
+            <label>حد الطلبات اليومية (0 = غير محدود)</label>
+            <input type="number" id="newPlanDailyOrdersLimit" min="0" value="100" />
+          </div>
+          <div class="form-field">
+            <label>قيمة العمولة (دج لكل طلبية)</label>
+            <input type="number" id="newPlanCommissionRate" min="0" step="1" value="0" />
+            <span class="hint">0 = بدون عمولة</span>
+          </div>
+          
+          <!-- ─── الخدمات والميزات ─── -->
+          <div class="form-field">
+            <label>خدمات الذكاء الاصطناعي</label>
+            <select id="newPlanAiFeatures">
+              <option value="true">مفعّلة</option>
+              <option value="false">معطّلة</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>تكامل مع شركات التوصيل</label>
+            <select id="newPlanShippingIntegration">
+              <option value="true">مفعّل</option>
+              <option value="false">معطّل</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>تقارير متقدمة</label>
+            <select id="newPlanAdvancedReports">
+              <option value="true">مفعّلة</option>
+              <option value="false">معطّلة</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>تصدير PDF و CSV</label>
+            <select id="newPlanExportPdfCsv">
+              <option value="true">مفعّل</option>
+              <option value="false">معطّل</option>
+            </select>
+          </div>
+          
+          <!-- ─── القوالب المسموح بها ─── -->
+          <div class="form-field full">
+            <label>القوالب المسموح باستخدامها</label>
+            <div style="display:flex; flex-direction:column; gap:8px; padding:10px; background:var(--gray-50); border-radius:8px;">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="newPlanTplZephyr" checked /> 
+                <span><strong>Zephyr</strong> — تصميم فاتح أنيق</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="newPlanTplNoir" /> 
+                <span><strong>Noir</strong> — تصميم داكن فاخر</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="newPlanTplNeon" /> 
+                <span><strong>Neon</strong> — تصميم نيون عصري</span>
+              </label>
+            </div>
+            <span class="hint">حدد القوالب التي يمكن للمتاجر استخدامها ضمن هذه الباقة</span>
+          </div>
+          
           <div class="form-field full">
             <label>المزايا (سطر لكل ميزة)</label>
             <textarea id="newPlanFeatures" placeholder="منتجات غير محدودة&#10;3 شركات شحن&#10;دعم واتساب"></textarea>
@@ -3703,6 +3816,11 @@ App.Plans = {
     const slug = $('#newPlanSlug').value.trim().toLowerCase();
     if (!name || !slug) { toast('الاسم و slug مطلوبان', 'error'); return; }
     const features = $('#newPlanFeatures').value.split('\n').map(s => s.trim()).filter(Boolean);
+    // جمع القوالب المختارة
+    const allowedTemplates = [];
+    if ($('#newPlanTplZephyr')?.checked) allowedTemplates.push('zephyr');
+    if ($('#newPlanTplNoir')?.checked) allowedTemplates.push('noir');
+    if ($('#newPlanTplNeon')?.checked) allowedTemplates.push('neon');
     const plan = {
       name, slug,
       price_monthly: parseFloat($('#newPlanMonthly').value) || 0,
@@ -3710,7 +3828,19 @@ App.Plans = {
       duration_days: parseInt($('#newPlanDuration').value) || 30,
       sort_order: parseInt($('#newPlanSort').value) || 0,
       features: features,
-      is_active: true
+      is_active: true,
+      // ─── الحدود والقيود ───
+      max_products: parseInt($('#newPlanMaxProducts').value) || 0,
+      max_orders: parseInt($('#newPlanMaxOrders').value) || 0,
+      daily_orders_limit: parseInt($('#newPlanDailyOrdersLimit').value) || 0,
+      commission_rate: parseFloat($('#newPlanCommissionRate').value) || 0,
+      // ─── الخدمات والميزات ───
+      ai_features: $('#newPlanAiFeatures').value === 'true',
+      shipping_integration: $('#newPlanShippingIntegration').value === 'true',
+      advanced_reports: $('#newPlanAdvancedReports').value === 'true',
+      export_pdf_csv: $('#newPlanExportPdfCsv').value === 'true',
+      // ─── القوالب المسموح بها ───
+      allowed_templates: allowedTemplates
     };
     try {
       const { error } = await State.supabase.from('plans').insert(plan);
@@ -3728,7 +3858,8 @@ App.Plans = {
   async openEditModal(planId) {
     const p = State.plans.find(x => x.id === planId);
     if (!p) return;
-    const features = Array.isArray(p.features) ? p.features : (typeof p.features === 'string' ? JSON.parse(p.features || '[]') : []);
+    const features = Array.isArray(p.features) ? p.features : (typeof p.features === 'string' ? (() => { try { return JSON.parse(p.features || '[]'); } catch(_) { return []; } })() : []);
+    const allowedTemplates = Array.isArray(p.allowed_templates) ? p.allowed_templates : (typeof p.allowed_templates === 'string' ? (() => { try { return JSON.parse(p.allowed_templates || '[]'); } catch(_) { return []; } })() : []);
     const id = openModal(`
       <div class="modal-header">
         <h3>تعديل باقة: ${escapeHtml(p.name)}</h3>
@@ -3762,6 +3893,54 @@ App.Plans = {
             <label>ترتيب العرض</label>
             <input type="number" id="editPlanSort" min="0" value="${p.sort_order}" />
           </div>
+          
+          <!-- ─── الحدود والقيود ─── -->
+          <div class="form-field">
+            <label>عدد المنتجات (0 = غير محدود)</label>
+            <input type="number" id="editPlanMaxProducts" min="0" value="${p.max_products ?? 0}" />
+          </div>
+          <div class="form-field">
+            <label>عدد الطلبات الإجمالي (0 = غير محدود)</label>
+            <input type="number" id="editPlanMaxOrders" min="0" value="${p.max_orders ?? 0}" />
+          </div>
+          <div class="form-field">
+            <label>حد الطلبات اليومية (0 = غير محدود)</label>
+            <input type="number" id="editPlanDailyOrdersLimit" min="0" value="${p.daily_orders_limit ?? 0}" />
+          </div>
+          <div class="form-field">
+            <label>قيمة العمولة (دج لكل طلبية)</label>
+            <input type="number" id="editPlanCommissionRate" min="0" step="1" value="${p.commission_rate ?? 0}" />
+          </div>
+          
+          <!-- ─── الخدمات والميزات ─── -->
+          <div class="form-field">
+            <label>خدمات الذكاء الاصطناعي</label>
+            <select id="editPlanAiFeatures">
+              <option value="true" ${p.ai_features ? 'selected' : ''}>مفعّلة</option>
+              <option value="false" ${!p.ai_features ? 'selected' : ''}>معطّلة</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>تكامل مع شركات التوصيل</label>
+            <select id="editPlanShippingIntegration">
+              <option value="true" ${p.shipping_integration ? 'selected' : ''}>مفعّل</option>
+              <option value="false" ${!p.shipping_integration ? 'selected' : ''}>معطّل</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>تقارير متقدمة</label>
+            <select id="editPlanAdvancedReports">
+              <option value="true" ${p.advanced_reports ? 'selected' : ''}>مفعّلة</option>
+              <option value="false" ${!p.advanced_reports ? 'selected' : ''}>معطّلة</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>تصدير PDF و CSV</label>
+            <select id="editPlanExportPdfCsv">
+              <option value="true" ${p.export_pdf_csv ? 'selected' : ''}>مفعّل</option>
+              <option value="false" ${!p.export_pdf_csv ? 'selected' : ''}>معطّل</option>
+            </select>
+          </div>
           <div class="form-field">
             <label>الحالة</label>
             <select id="editPlanActive">
@@ -3769,6 +3948,26 @@ App.Plans = {
               <option value="false" ${!p.is_active ? 'selected' : ''}>معطّل</option>
             </select>
           </div>
+          
+          <!-- ─── القوالب المسموح بها ─── -->
+          <div class="form-field full">
+            <label>القوالب المسموح باستخدامها</label>
+            <div style="display:flex; flex-direction:column; gap:8px; padding:10px; background:var(--gray-50); border-radius:8px;">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="editPlanTplZephyr" ${allowedTemplates.includes('zephyr') ? 'checked' : ''} /> 
+                <span><strong>Zephyr</strong> — تصميم فاتح أنيق</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="editPlanTplNoir" ${allowedTemplates.includes('noir') ? 'checked' : ''} /> 
+                <span><strong>Noir</strong> — تصميم داكن فاخر</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="editPlanTplNeon" ${allowedTemplates.includes('neon') ? 'checked' : ''} /> 
+                <span><strong>Neon</strong> — تصميم نيون عصري</span>
+              </label>
+            </div>
+          </div>
+          
           <div class="form-field full">
             <label>المزايا (سطر لكل ميزة)</label>
             <textarea id="editPlanFeatures">${features.map(f => escapeHtml(f)).join('\n')}</textarea>
@@ -3787,6 +3986,11 @@ App.Plans = {
 
   async saveEdit(planId) {
     const features = $('#editPlanFeatures').value.split('\n').map(s => s.trim()).filter(Boolean);
+    // جمع القوالب المختارة
+    const allowedTemplates = [];
+    if ($('#editPlanTplZephyr')?.checked) allowedTemplates.push('zephyr');
+    if ($('#editPlanTplNoir')?.checked) allowedTemplates.push('noir');
+    if ($('#editPlanTplNeon')?.checked) allowedTemplates.push('neon');
     const updates = {
       name: $('#editPlanName').value.trim(),
       slug: $('#editPlanSlug').value.trim().toLowerCase(),
@@ -3795,7 +3999,19 @@ App.Plans = {
       duration_days: parseInt($('#editPlanDuration').value) || 30,
       sort_order: parseInt($('#editPlanSort').value) || 0,
       features,
-      is_active: $('#editPlanActive').value === 'true'
+      is_active: $('#editPlanActive').value === 'true',
+      // ─── الحدود والقيود ───
+      max_products: parseInt($('#editPlanMaxProducts').value) || 0,
+      max_orders: parseInt($('#editPlanMaxOrders').value) || 0,
+      daily_orders_limit: parseInt($('#editPlanDailyOrdersLimit').value) || 0,
+      commission_rate: parseFloat($('#editPlanCommissionRate').value) || 0,
+      // ─── الخدمات والميزات ───
+      ai_features: $('#editPlanAiFeatures').value === 'true',
+      shipping_integration: $('#editPlanShippingIntegration').value === 'true',
+      advanced_reports: $('#editPlanAdvancedReports').value === 'true',
+      export_pdf_csv: $('#editPlanExportPdfCsv').value === 'true',
+      // ─── القوالب المسموح بها ───
+      allowed_templates: allowedTemplates
     };
     try {
       const { error } = await State.supabase.from('plans').update(updates).eq('id', planId);
