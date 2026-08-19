@@ -1709,9 +1709,24 @@
    ==================================================================== */
 
 // ⚠️ استبدل القيمتين التاليتين بإعدادات Supabase الخاصة بمشروعك:
+// ✅ القيم مُعبّأة مسبقًا لمشروع shopevelo الإنتاجي. لا تغييرها إلا عند الترحيل.
 const SUPABASE_URL = 'https://tgqkathfzrnkiyxwzkbc.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_MnDIdSEFp9UrLmvC0Y2k4g_Tp74iXHb';
 // ملاحظة: استعملنا publishable key (آمن للواجهة). لا تستعمل sb_secret_ أو service_role في HTML أبدًا.
+//
+// 🔌 ربط منصة shopevelo:
+//   - هذا الملف (admin-local) يعمل مباشرة على نفس قاعدة Supabase التي تعمل عليها منصة shopevelo.
+//   - admin-local يقرأ ويكتب في نفس الجداول (stores, profiles, plans, coupons, platform_settings, إلخ).
+//   - كل تغيير في لوحة التحكم ينعكس مباشرة على منصة shopevelo (الباقات، الإعدادات، إلخ).
+//   - shopevelo يقرأ:
+//       • الأسعار من جدول `plans` (مع fallback لـ PLANS الثابتة في constants.ts)
+//       • الإعدادات من `platform_settings` (إعلان، صيانة، بنك، دعم، إلخ)
+//
+// ⚠️ تشغيل الماايجريشن أول مرة:
+//   قبل استخدام admin-local، يجب تطبيق migration_admin_panel.sql في
+//   Supabase Dashboard → SQL Editor → الصق الملف → Run
+//   (الموجود في مستودع shopevelo على المسار: supabase/migration_admin_panel.sql)
+//   بدون هذا الماايجريشن ستفشل كل استعلامات admin-local لأن الجداول غير موجودة.
 
 // ============== Global State ==============
 const State = {
@@ -1940,10 +1955,11 @@ const App = {
     // ربط الأحداث
     this.bindEvents();
 
-    // اختبار سريع للاتصال
+    // اختبار سريع للاتصال — نختبر جدول profiles (موجود دائمًا في shopevelo)
+    // بدل plans (لو لم يُطبّق migration_admin_panel.sql بعد، سيفشل باقي الـ queries)
     try {
       const { data, error } = await State.supabase
-        .from('plans')
+        .from('profiles')
         .select('id')
         .limit(1);
       if (error) {
@@ -1951,6 +1967,19 @@ const App = {
         toast('تعذّر الوصول لقاعدة البيانات: ' + (error.message || 'خطأ غير معروف') + ' — تأكد من تنفيذ schema.sql', 'error', 8000);
       } else {
         console.log('[ShopeVelo Admin] ✓ الاتصال بقاعدة البيانات يعمل');
+        // تحقق إضافي: هل طبّقت migration_admin_panel.sql؟
+        try {
+          const { error: plansErr } = await State.supabase
+            .from('plans')
+            .select('id')
+            .limit(1);
+          if (plansErr) {
+            console.warn('[ShopeVelo Admin] ⚠️ جدول plans غير موجود — يجب تطبيق migration_admin_panel.sql');
+            toast('⚠️ تنبيه: يجب تطبيق migration_admin_panel.sql في Supabase Dashboard (SQL Editor) لكي تعمل لوحة التحكم بالكامل. راجع التعليقات أعلى الملف.', 'warning', 12000);
+          } else {
+            console.log('[ShopeVelo Admin] ✓ جدول plans موجود — admin panel migration مُطبَّق');
+          }
+        } catch (_) { /* ignore */ }
       }
     } catch (e) {
       console.error('[ShopeVelo Admin] خطأ في اختبار الاتصال:', e);
@@ -2257,6 +2286,12 @@ App.Dashboard = {
       const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
       const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
+      // 🔌 ملاحظة حول التوافق:
+      //   - `subscriptions` قد لا يكون موجودًا لو لم يُطبّق migration_admin_panel.sql.
+      //   - الأعمدة subscription_status / subscription_end على stores قد لا تكون موجودة.
+      //   - نستعمل استعلامات دفاعية: لو فشل أحدها، نُسقط القيمة إلى [] ولا نُكسر لوحة التحكم.
+      //   - نعرض تحذيرًا صامتًا لو الجداول غير موجودة.
+
       const [
         monthRevenue, activeSubs, pendingShipping, newStoresThisMonth,
         expiringSoon, plansDist, sixMonthsData, recentActivity, ordersCount
@@ -2288,6 +2323,15 @@ App.Dashboard = {
         // عدد الطلبات الكلي
         State.supabase.from('orders').select('id, total, created_at')
       ]);
+
+      // لو فشل استعلام subscriptions/admin_audit_log (الجداول غير موجودة قبل تطبيق الماايجريشن)
+      // نتعامل معه بصمت
+      if (monthRevenue.error && monthRevenue.error.message?.includes('relation')) {
+        console.warn('[Dashboard] جدول subscriptions غير موجود — تطبيق migration_admin_panel.sql يُحل المشكلة');
+      }
+      if (recentActivity.error && recentActivity.error.message?.includes('relation')) {
+        console.warn('[Dashboard] جدول admin_audit_log غير موجود — تطبيق migration_admin_panel.sql يُحل المشكلة');
+      }
 
       // حساب MRR
       const activeStores = (activeSubs.data || []);
@@ -2518,19 +2562,28 @@ App.Users = {
     const tbody = $('#usersTbody');
     tbody.innerHTML = '<tr class="empty-row"><td colspan="7">جارٍ التحميل...</td></tr>';
     try {
-      // تحميل profiles (للحصول على بريد المالك)
+      // تحميل profiles (للحصول على بريد المالك + role + active + expires_at)
       const { data: profiles, error: pe } = await State.supabase
         .from('profiles')
-        .select('id, email, phone, store_name, store_id, role, active, expires_at')
+        .select('id, email, phone, store_name, store_id, role, active, expires_at, created_at')
         .order('created_at', { ascending: false });
       State.profilesCache = pe ? [] : (profiles || []);
 
-      // تحميل stores (البنية الحقيقية لـ shopevelo)
+      // تحميل stores — استعمل أعمدة shopevelo الحقيقية + الأعمدة المضافة في migration_admin_panel
+      // (store_slug, phone, store_wilaya, plan_id, subscription_status, subscription_start,
+      //  subscription_end, is_blocked).
+      // لو لم يُطبّق الماايجريشن بعد، سيفشل هذا الاستعلام. نعرض خطأ مفهومًا.
       const { data, error } = await State.supabase
         .from('stores')
         .select('id, name, store_slug, owner_id, phone, store_wilaya, plan_id, subscription_status, subscription_start, subscription_end, is_blocked, created_at')
         .order('created_at', { ascending: false });
-      if (error) throw error;
+      if (error) {
+        // لو الـ error بسبب أعمدة غير موجودة → أعطِ رسالة Migration مناسبة
+        if (error.message && (error.message.includes('column') || error.message.includes('schema'))) {
+          toast('⚠️ أعمدة stores المُضافة في migration_admin_panel.sql غير موجودة. طبّق الـ migration أولًا.', 'error', 10000);
+        }
+        throw error;
+      }
       this.all = data || [];
       this.applyFilters();
     } catch (e) {
@@ -2947,7 +3000,8 @@ App.Subscriptions = {
       const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
       // الاشتراكات المنتهية قريبًا (خلال 7 أيام) — من stores الحقيقية
-      const { data: expiring, error: e1 } = await State.supabase
+      // لو فشل الاستعلام (أعمدة غير موجودة قبل الماايجريشن) → نعرض قائمة فارغة + toast إرشادي
+      const expiringQ = await State.supabase
         .from('stores')
         .select('id, name, store_slug, owner_id, phone, store_wilaya, subscription_end, subscription_status, plan_id')
         .not('subscription_end', 'is', null)
@@ -2955,7 +3009,15 @@ App.Subscriptions = {
         .lt('subscription_end', in7Days.toISOString())
         .neq('subscription_status', 'cancelled')
         .order('subscription_end', { ascending: true });
-      if (e1) throw e1;
+      const e1 = expiringQ.error;
+      const expiring = expiringQ.data;
+      if (e1) {
+        if (e1.message?.includes('column') || e1.message?.includes('relation') || e1.message?.includes('schema')) {
+          toast('⚠️ أعمدة/جداول subscription_end غير موجودة. طبّق migration_admin_panel.sql لعرض الاشتراكات.', 'warning', 8000);
+        } else {
+          throw e1;
+        }
+      }
 
       const expList = expiring || [];
       $('#expiringAlertSubs').style.display = expList.length > 0 ? 'flex' : 'none';
@@ -2987,12 +3049,22 @@ App.Subscriptions = {
       }
 
       // كل الاشتراكات من جدول subscriptions
-      const { data: allSubs, error: e2 } = await State.supabase
+      // (يُضاف في migration_admin_panel.sql؛ لو لم يُطبّق، نعرض قائمة فارغة)
+      const allSubsQ = await State.supabase
         .from('subscriptions')
         .select('*, stores(name, store_slug), plans(name)')
         .order('created_at', { ascending: false })
         .limit(100);
-      if (e2) throw e2;
+      const e2 = allSubsQ.error;
+      const allSubs = allSubsQ.data;
+      if (e2) {
+        if (e2.message?.includes('relation') || e2.message?.includes('schema')) {
+          // جدول subscriptions غير موجود — اعرض قائمة فارغة بصمت
+          console.warn('[Subscriptions] جدول subscriptions غير موجود — طبّق migration_admin_panel.sql');
+        } else {
+          throw e2;
+        }
+      }
       const allTbody = $('#allSubsTbody');
       if (!allSubs || allSubs.length === 0) {
         allTbody.innerHTML = '<tr class="empty-row"><td colspan="7">لا توجد اشتراكات مسجّلة بعد — سيظهر هنا كل اشتراك مدفوع.</td></tr>';
@@ -3511,8 +3583,22 @@ App.Plans = {
   async load() {
     try {
       const { data, error } = await State.supabase.from('plans').select('*').order('sort_order', { ascending: true });
-      if (error) throw error;
-      State.plans = data || [];
+      if (error) {
+        if (error.message?.includes('relation') || error.message?.includes('schema')) {
+          // جدول plans غير موجود — استعمل باقات hardcoded كـ fallback
+          // (مطابقة لـ PLANS في shopevelo/src/lib/constants.ts)
+          console.warn('[Plans] جدول plans غير موجود. نستعمل باقات hardcoded.');
+          State.plans = [
+            { id: 'free', slug: 'free', name: 'مجاني', price_monthly: 0, price_yearly: 0, duration_days: 30, sort_order: 0, is_active: true, features: ['3 منتجات','إدارة الطلبات','دعم عبر البريد'] },
+            { id: 'pro', slug: 'pro', name: 'احترافي', price_monthly: 600, price_yearly: 6000, duration_days: 30, sort_order: 1, is_active: true, features: ['حتى 20 منتجًا','بدون عمولة','جميع ميزات الذكاء الاصطناعي','تصدير CSV و PDF'] },
+          ];
+          toast('⚠️ جدول plans غير موجود. نستعمل باقات hardcoded مؤقتًا — طبّق migration_admin_panel.sql لتفعيل إدارة الباقات.', 'warning', 8000);
+        } else {
+          throw error;
+        }
+      } else {
+        State.plans = data || [];
+      }
       // تحديث فلاتر الباقة في صفحة المستخدمين
       const filterPlan = $('#filterPlan');
       if (filterPlan) {
@@ -4164,12 +4250,39 @@ App.Settings = {
   async load() {
     try {
       const { data, error } = await State.supabase.from('platform_settings').select('*');
-      if (error) throw error;
-      State.settings = {};
-      (data || []).forEach(s => {
-        try { State.settings[s.key] = typeof s.value === 'string' ? JSON.parse(s.value) : s.value; }
-        catch (e) { State.settings[s.key] = s.value; }
-      });
+      if (error) {
+        if (error.message?.includes('relation') || error.message?.includes('schema')) {
+          // جدول platform_settings غير موجود — استعمل defaults بصمت
+          // (سيتطلب تطبيق migration_admin_panel.sql للحفظ الفعلي)
+          console.warn('[Settings] جدول platform_settings غير موجود. استعمل defaults.');
+          State.settings = {
+            announcement_enabled: false,
+            announcement_color: '#d97706',
+            announcement_text: '',
+            maintenance_mode: false,
+            maintenance_message: 'المنصة قيد الصيانة. نعود قريبًا.',
+            whatsapp_support_number: '213XXXXXXXXX',
+            merchant_welcome_message: 'مرحبًا بك في ShopeVelo!',
+            carriers: {
+              yalidine: { name: 'يالدين', default_fee: 400, enabled: true },
+              ecotrack: { name: 'إيكوتراك', default_fee: 350, enabled: true },
+              zrexpress: { name: 'ZR Express', default_fee: 400, enabled: true },
+              procolis: { name: 'بروكوليس', default_fee: 450, enabled: false },
+              guepex: { name: 'Guepex', default_fee: 450, enabled: false },
+              zimou: { name: 'زيمو', default_fee: 500, enabled: false },
+            },
+          };
+          toast('⚠️ جدول platform_settings غير موجود. طبّق migration_admin_panel.sql لحفظ الإعدادات.', 'warning', 8000);
+        } else {
+          throw error;
+        }
+      } else {
+        State.settings = {};
+        (data || []).forEach(s => {
+          try { State.settings[s.key] = typeof s.value === 'string' ? JSON.parse(s.value) : s.value; }
+          catch (e) { State.settings[s.key] = s.value; }
+        });
+      }
       // تحديث بانر الصيانة
       if (State.settings.maintenance_mode === true) {
         $('#maintenanceBanner').classList.add('active');
