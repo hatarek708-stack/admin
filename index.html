@@ -1848,11 +1848,13 @@ function playBeep() {
 // ============== Modal helper ==============
 function openModal(html, size = '') {
   const root = $('#modalsRoot');
-  const id = 'modal-' + Date.now();
+  const id = 'modal-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+  // ✨ استبدل __MODAL_ID__ بـ id الحقيقي (يحل مشكلة استخدام id قبل تعريفه)
+  const finalHtml = html.replace(/__MODAL_ID__/g, id);
   root.insertAdjacentHTML('beforeend', `
-    <div class="modal-backdrop open" id="${id}" onclick="if(event.target===this) closeModal('${id}')">
+    <div class="modal-backdrop open" id="${id}" onclick="if(event.target===this) closeModal('__MODAL_ID__')">
       <div class="modal ${size}">
-        ${html}
+        ${finalHtml}
       </div>
     </div>
   `);
@@ -1886,7 +1888,7 @@ function confirmDialog(message, onConfirm, opts = {}) {
   const id = openModal(`
     <div class="modal-header">
       <h3>${opts.title || 'تأكيد'}</h3>
-      <button class="close-btn" onclick="closeModal('${id}')">
+      <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
@@ -1894,15 +1896,18 @@ function confirmDialog(message, onConfirm, opts = {}) {
       <p>${escapeHtml(message)}</p>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-danger" id="confirmYes_${id}">${opts.confirmText || 'تأكيد'}</button>
-      <button class="btn btn-outline" onclick="closeModal('${id}')">${opts.cancelText || 'إلغاء'}</button>
+      <button class="btn btn-danger" id="confirmYes___MODAL_ID__">${opts.confirmText || 'تأكيد'}</button>
+      <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">${opts.cancelText || 'إلغاء'}</button>
     </div>
   `, 'modal-sm');
   setTimeout(() => {
-    document.getElementById(`confirmYes_${id}`).onclick = () => {
-      closeModal(id);
-      onConfirm();
-    };
+    const yesBtn = document.getElementById(`confirmYes_${id}`);
+    if (yesBtn) {
+      yesBtn.onclick = () => {
+        closeModal(id);
+        onConfirm();
+      };
+    }
   }, 50);
   return id;
 }
@@ -2719,7 +2724,7 @@ App.Users = {
     const id = openModal(`
       <div class="modal-header">
         <h3>إضافة متجر جديد</h3>
-        <button class="close-btn" onclick="closeModal('${id}')">
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -2766,7 +2771,7 @@ App.Users = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveNewStoreBtn">حفظ المتجر</button>
-        <button class="btn btn-outline" onclick="closeModal('${id}')">إلغاء</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إلغاء</button>
       </div>
     `);
     setTimeout(() => {
@@ -2831,7 +2836,7 @@ App.Users = {
     const id = openModal(`
       <div class="modal-header">
         <h3>تعديل متجر: ${escapeHtml(s.name)}</h3>
-        <button class="close-btn" onclick="closeModal('${id}')">
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -2889,7 +2894,7 @@ App.Users = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveEditStoreBtn">حفظ</button>
-        <button class="btn btn-outline" onclick="closeModal('${id}')">إلغاء</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إلغاء</button>
       </div>
     `);
     setTimeout(() => {
@@ -3385,7 +3390,7 @@ App.Coupons = {
     const id = openModal(`
       <div class="modal-header">
         <h3>كوبون خصم جديد</h3>
-        <button class="close-btn" onclick="closeModal('${id}')">
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -3432,7 +3437,7 @@ App.Coupons = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveNewCouponBtn">حفظ الكوبون</button>
-        <button class="btn btn-outline" onclick="closeModal('${id}')">إلغاء</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إلغاء</button>
       </div>
     `);
     setTimeout(() => {
@@ -3473,7 +3478,7 @@ App.Coupons = {
     const id = openModal(`
       <div class="modal-header">
         <h3>تعديل كوبون: ${escapeHtml(c.code)}</h3>
-        <button class="close-btn" onclick="closeModal('${id}')">
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -3517,7 +3522,7 @@ App.Coupons = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveEditCouponBtn">حفظ</button>
-        <button class="btn btn-outline" onclick="closeModal('${id}')">إلغاء</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إلغاء</button>
       </div>
     `);
     setTimeout(() => {
@@ -3694,7 +3699,7 @@ App.Plans = {
     const id = openModal(`
       <div class="modal-header">
         <h3>باقة جديدة</h3>
-        <button class="close-btn" onclick="closeModal('${id}')">
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -3803,7 +3808,7 @@ App.Plans = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveNewPlanBtn">حفظ الباقة</button>
-        <button class="btn btn-outline" onclick="closeModal('${id}')">إلغاء</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إلغاء</button>
       </div>
     `);
     setTimeout(() => {
@@ -3863,7 +3868,7 @@ App.Plans = {
     const id = openModal(`
       <div class="modal-header">
         <h3>تعديل باقة: ${escapeHtml(p.name)}</h3>
-        <button class="close-btn" onclick="closeModal('${id}')">
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -3976,7 +3981,7 @@ App.Plans = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveEditPlanBtn">حفظ</button>
-        <button class="btn btn-outline" onclick="closeModal('${id}')">إلغاء</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إلغاء</button>
       </div>
     `);
     setTimeout(() => {
@@ -4119,7 +4124,7 @@ App.Affiliates = {
     const id = openModal(`
       <div class="modal-header">
         <h3>إضافة مسوّق جديد</h3>
-        <button class="close-btn" onclick="closeModal('${id}')">
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -4156,7 +4161,7 @@ App.Affiliates = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveNewAffBtn">حفظ المسوّق</button>
-        <button class="btn btn-outline" onclick="closeModal('${id}')">إلغاء</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إلغاء</button>
       </div>
     `);
     setTimeout(() => {
@@ -4196,7 +4201,7 @@ App.Affiliates = {
     const id = openModal(`
       <div class="modal-header">
         <h3>تعديل مسوّق: ${escapeHtml(a.name)}</h3>
-        <button class="close-btn" onclick="closeModal('${id}')">
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -4237,7 +4242,7 @@ App.Affiliates = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveEditAffBtn">حفظ</button>
-        <button class="btn btn-outline" onclick="closeModal('${id}')">إلغاء</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إلغاء</button>
       </div>
     `);
     setTimeout(() => {
@@ -4348,7 +4353,7 @@ App.Tickets = {
       const id = openModal(`
         <div class="modal-header">
           <h3>${escapeHtml(t.subject)}</h3>
-          <button class="close-btn" onclick="closeModal('${id}')">
+          <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -4378,7 +4383,7 @@ App.Tickets = {
         </div>
         <div class="modal-footer">
           <button class="btn btn-primary" id="sendReplyBtn">إرسال الرد</button>
-          <button class="btn btn-outline" onclick="closeModal('${id}')">إغلاق</button>
+          <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إغلاق</button>
         </div>
       `, 'modal-lg');
       setTimeout(() => {
@@ -4668,7 +4673,7 @@ App.Admins = {
     const id = openModal(`
       <div class="modal-header">
         <h3>إضافة أدمن جديد</h3>
-        <button class="close-btn" onclick="closeModal('${id}')">
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -4698,7 +4703,7 @@ App.Admins = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveNewAdminBtn">ربط الأدمن</button>
-        <button class="btn btn-outline" onclick="closeModal('${id}')">إلغاء</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إلغاء</button>
       </div>
     `);
     setTimeout(() => {
@@ -4737,7 +4742,7 @@ App.Admins = {
     const id = openModal(`
       <div class="modal-header">
         <h3>تعديل أدمن: ${escapeHtml(a.email)}</h3>
-        <button class="close-btn" onclick="closeModal('${id}')">
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -4770,7 +4775,7 @@ App.Admins = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveEditAdminBtn">حفظ</button>
-        <button class="btn btn-outline" onclick="closeModal('${id}')">إلغاء</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إلغاء</button>
       </div>
     `);
     setTimeout(() => {
