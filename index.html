@@ -2153,6 +2153,8 @@ const App = {
       const { data: fixed, error: fixErr } = await State.supabase.rpc('ensure_admin_role');
       if (fixErr) {
         console.warn('[ShopeVelo Admin] ensure_admin_role RPC غير موجود — طبّق migration_self_fix_permissions.sql');
+        // ✨ عرض رسالة واضحة للمستخدم
+        toast('⚠️ يجب تطبيق migration_self_fix_permissions.sql لكي يعمل حذف/تعديل المتاجر', 'warning', 10000);
       } else if (fixed === true) {
         console.log('[ShopeVelo Admin] ✓ تم إصلاح صلاحيات الأدمن تلقائيًا');
       } else {
