@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShopeVelo — تشخيص الصلاحيات</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+      padding: 20px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { color: #059669; margin-bottom: 20px; }
+    h2 { color: #0f172a; margin: 20px 0 10px; font-size: 18px; }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .check {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: #f8fafc;
+    }
+    .check.ok { background: #dcfce7; border-right: 4px solid #16a34a; }
+    .check.fail { background: #fee2e2; border-right: 4px solid #dc2626; }
+    .check.warn { background: #fef3c7; border-right: 4px solid #d97706; }
+    .icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      flex-shrink: 0;
+      color: white;
+      font-size: 16px;
+    }
+    .ok .icon { background: #16a34a; }
+    .fail .icon { background: #dc2626; }
+    .warn .icon { background: #d97706; }
+    .content { flex: 1; }
+    .label { font-weight: 600; margin-bottom: 4px; }
+    .value { font-family: monospace; font-size: 12px; color: #64748b; word-break: break-all; }
+    .fix {
+      background: #dbeafe;
+      padding: 10px;
+      border-radius: 6px;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    .fix code { background: #1e293b; color: #a7f3d0; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+    input, button {
+      font-family: inherit;
+      font-size: 14px;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      margin: 5px 0;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+    }
+    button {
+      background: #059669;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      margin-top: 10px;
+    }
+    button:hover { background: #047857; }
+    button.secondary { background: #64748b; }
+    button.secondary:hover { background: #475569; }
+    .hidden { display: none; }
+    .code-block {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      margin: 10px 0;
+      direction: ltr;
+      text-align: left;
+    }
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔧 تشخيص صلاحيات الأدمن</h1>
+    <p>هذه الصفحة تتحقق من سبب عدم قدرتك على حذف/تعديل المستخدمين.</p>
+
+    <div class="card" id="loginCard">
+      <h2>🔐 تسجيل الدخول</h2>
+      <p>سجّل دخولك بنفس حساب admin-local:</p>
+      <input type="email" id="email" placeholder="البريد الإلكتروني" />
+      <input type="password" id="password" placeholder="كلمة المرور" />
+      <button onclick="doLogin()">تسجيل الدخول والتشخيص</button>
+    </div>
+
+    <div class="card hidden" id="resultsCard">
+      <h2>📊 نتائج التشخيص</h2>
+      <div id="results"></div>
+    </div>
+
+    <div class="card hidden" id="fixCard">
+      <h2>🔧 الحلول</h2>
+      <div id="fixes"></div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://tgqkathfzrnkiyxwzkbc.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_MnDIdSEFp9UrLmvC0Y2k4g_Tp74iXHb';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false }
+    });
+
+    let currentUser = null;
+    const fixes = [];
+
+    function addCheck(ok, label, value = '', fix = '') {
+      const cls = ok ? 'ok' : (value === 'warn' ? 'warn' : 'fail');
+      const icon = ok ? '✓' : (value === 'warn' ? '!' : '✗');
+      const html = `
+        <div class="check ${cls}">
+          <div class="icon">${icon}</div>
+          <div class="content">
+            <div class="label">${label}</div>
+            ${value && value !== 'warn' ? `<div class="value">${value}</div>` : ''}
+            ${fix ? `<div class="fix">💡 ${fix}</div>` : ''}
+          </div>
+        </div>
+      `;
+      document.getElementById('results').insertAdjacentHTML('beforeend', html);
+      if (fix) fixes.push(fix);
+    }
+
+    async function doLogin() {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      if (!email || !password) {
+        alert('أدخل البريد وكلمة المرور');
+        return;
+      }
+
+      document.getElementById('results').innerHTML = '<p>جارٍ التشخيص...</p>';
+      document.getElementById('resultsCard').classList.remove('hidden');
+
+      try {
+        // 1) تسجيل الدخول
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+        if (authError) throw authError;
+        currentUser = authData.user;
+
+        document.getElementById('results').innerHTML = '';
+        addCheck(true, 'تسجيل الدخول ناجح', email);
+
+        // 2) فحص admin_users
+        const { data: adminRec, error: adminErr } = await supabase
+          .from('admin_users')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .single();
+
+        if (adminErr || !adminRec) {
+          addCheck(false, 'حسابك غير مُسجّل في admin_users',
+            adminErr?.message || 'لا يوجد سجل',
+            'أضف حسابك لجدول admin_users في Supabase. راجع الحلول أدناه.');
+        } else {
+          addCheck(true, 'حسابك مُسجّل في admin_users', `الدور: ${adminRec.role}, نشط: ${adminRec.is_active}`);
+          if (!adminRec.is_active) {
+            addCheck(false, 'حسابك معطّل (is_active = false)', '',
+              'فعّل حسابك: UPDATE admin_users SET is_active = true WHERE user_id = \'' + currentUser.id + '\'');
+          }
+          if (adminRec.role !== 'super_admin' && adminRec.role !== 'accountant' && adminRec.role !== 'support') {
+            addCheck(false, 'دور غير صالح', adminRec.role,
+              'UPDATE admin_users SET role = \'super_admin\' WHERE user_id = \'' + currentUser.id + '\'');
+          }
+        }
+
+        // 3) فحص profiles.role
+        const { data: profile, error: profileErr } = await supabase
+          .from('profiles')
+          .select('id, email, role, active')
+          .eq('id', currentUser.id)
+          .single();
+
+        if (profileErr || !profile) {
+          addCheck(false, 'حسابك غير موجود في profiles', profileErr?.message || '',
+            'INSERT INTO profiles (id, email, role) VALUES (\'' + currentUser.id + '\', \'' + email + '\', \'admin\')');
+        } else {
+          if (profile.role === 'admin') {
+            addCheck(true, 'profiles.role = admin', '✓ صحيح');
+          } else {
+            addCheck(false, 'profiles.role ليس admin', `الحالي: ${profile.role}`,
+              'UPDATE profiles SET role = \'admin\' WHERE id = \'' + currentUser.id + '\'');
+          }
+        }
+
+        // 4) فحص is_admin()
+        const { data: isAdmin, error: iaErr } = await supabase.rpc('is_admin');
+        if (iaErr) {
+          addCheck(false, 'RPC is_admin فشل', iaErr.message,
+            'الـ migration لم يُطبَّق. طبّق migration_fix_all_rls.sql');
+        } else {
+          addCheck(isAdmin, 'is_admin()', isAdmin ? 'true ✓' : 'false ✗',
+            !isAdmin ? 'profiles.role ليس admin' : '');
+        }
+
+        // 5) فحص is_admin_or_staff()
+        const { data: isStaff, error: isErr } = await supabase.rpc('is_admin_or_staff');
+        if (isErr) {
+          addCheck(false, 'RPC is_admin_or_staff فشل', isErr.message,
+            'الـ migration لم يُطبَّق. طبّق migration_fix_all_rls.sql');
+        } else {
+          addCheck(isStaff, 'is_admin_or_staff()', isStaff ? 'true ✓' : 'false ✗',
+            !isStaff ? 'حسابك غير مُسجّل في admin_users أو غير نشط' : '');
+        }
+
+        // 6) اختبار فعلي: محاولة تحديث متجر
+        if (isAdmin || isStaff) {
+          const testStoreId = 'admin-store';
+          const { data: updated, error: updErr } = await supabase
+            .from('stores')
+            .update({ store_wilaya: 'الجزائر' })
+            .eq('id', testStoreId)
+            .select('id');
+
+          if (updErr) {
+            addCheck(false, 'اختبار تحديث متجر فشل', updErr.message,
+              'سياسة stores_update لا تسمح بالتحديث. طبّق migration_fix_all_rls.sql');
+          } else if (updated && updated.length > 0) {
+            addCheck(true, 'اختبار تحديث متجر نجح', `تم تحديث ${updated.length} متجر ✓`);
+          } else {
+            addCheck(false, 'اختبار تحديث متجر لم يُؤثر', '0 صفوف متأثرة',
+              'سياسة stores_update تمنع التحديث. طبّق migration_fix_all_rls.sql');
+          }
+
+          // 7) اختبار حذف (بدون حذف فعلي - نستخدم معرف غير موجود)
+          const { data: deleted, error: delErr } = await supabase
+            .from('stores')
+            .delete()
+            .eq('id', 'nonexistent-test-' + Date.now())
+            .select('id');
+
+          if (delErr) {
+            addCheck(false, 'اختبار حذف متجر فشل', delErr.message,
+              'سياسة stores_delete لا تسمح بالحذف. طبّق migration_fix_all_rls.sql');
+          } else {
+            addCheck(true, 'اختبار حذف متجر نجح', '✓ لديك صلاحية الحذف');
+          }
+        }
+
+        // 8) فحص trigger protect_store_owner
+        const { data: trigData, error: trigErr } = await supabase
+          .rpc('is_admin_or_staff');
+        if (trigErr) {
+          addCheck(false, 'لا يمكن فحص الترايجرز', trigErr.message,
+            'طبّق migration_fix_all_rls.sql لتحديث الترايجرز');
+        }
+
+        // عرض الحلول
+        showFixes();
+
+      } catch (e) {
+        addCheck(false, 'فشل التشخيص', e.message, 'تأكد من صحة البريد وكلمة المرور');
+        showFixes();
+      }
+    }
+
+    function showFixes() {
+      if (fixes.length === 0) {
+        document.getElementById('fixes').innerHTML = '<p style="color:#16a34a;font-weight:600;">✓ كل الفحوصات نجحت! يجب أن تعمل الأزرار الآن.</p>';
+      } else {
+        const uniqueFixes = [...new Set(fixes)];
+        let html = '<p>الطريقة الأسرع لإصلاح كل المشاكل:</p>';
+        html += '<div class="code-block">';
+        html += '-- افتح Supabase Dashboard → SQL Editor → الصق هذا → Run\n\n';
+        html += '-- 1) تفعيل حسابك كأدمن\n';
+        html += `UPDATE admin_users SET is_active = true, role = 'super_admin'\n`;
+        html += `WHERE email = '${document.getElementById('email').value.trim()}';\n\n`;
+        html += '-- 2) ضبط profiles.role = admin\n';
+        html += `UPDATE profiles SET role = 'admin'\n`;
+        html += `WHERE email = '${document.getElementById('email').value.trim()}';\n\n`;
+        html += '-- 3) تطبيق migration_fix_all_rls.sql (من مستودع shopevelo)\n';
+        html += '--    انسخ محتوى الملف والصقه هنا ثم Run\n';
+        html += '</div>';
+        html += '<p style="margin-top:15px;"><strong>أو</strong> اضغط زر "تطبيق الإصلاح التلقائي" أدناه (يحتاج صلاحية service_role):</p>';
+        html += '<button class="secondary" onclick="window.open(\'https://supabase.com/dashboard/project/tgqkathfzrnkiyxwzkbc/sql/new\', \'_blank\')">فتح Supabase SQL Editor</button>';
+        document.getElementById('fixes').innerHTML = html;
+      }
+      document.getElementById('fixCard').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>

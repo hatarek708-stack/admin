@@ -2147,6 +2147,21 @@ const App = {
   async afterLogin(user) {
     State.user = user;
 
+    // ✨ إصلاح تلقائي للصلاحيات: تأكد من أن profiles.role='admin' للأدمن
+    // هذا يحل مشكلة "لا يمكن حذف/تعديل المتاجر" لو لم يُضبط profiles.role تلقائيًا
+    try {
+      const { data: fixed, error: fixErr } = await State.supabase.rpc('ensure_admin_role');
+      if (fixErr) {
+        console.warn('[ShopeVelo Admin] ensure_admin_role RPC غير موجود — طبّق migration_self_fix_permissions.sql');
+      } else if (fixed === true) {
+        console.log('[ShopeVelo Admin] ✓ تم إصلاح صلاحيات الأدمن تلقائيًا');
+      } else {
+        console.warn('[ShopeVelo Admin] حسابك غير مُسجّل في admin_users');
+      }
+    } catch (e) {
+      console.warn('[ShopeVelo Admin] فشل ensure_admin_role:', e.message);
+    }
+
     // تحميل بروفايل الأدمن
     const { data: profile, error } = await State.supabase
       .from('admin_users')
@@ -2920,6 +2935,8 @@ App.Users = {
       updates.subscription_status = 'active';
     }
     try {
+      // ✨ إصلاح تلقائي للصلاحيات قبل العملية
+      try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
       const { error } = await State.supabase.from('stores').update(updates).eq('id', storeId);
       if (error) throw error;
       await logAction(renewDays > 0 ? 'subscription_renew' : 'plan_change', 'store', storeId, updates.name, updates);
@@ -2946,6 +2963,8 @@ App.Users = {
   async toggleBlock(storeId, block) {
     const s = this.all.find(x => x.id === storeId);
     try {
+      // ✨ إصلاح تلقائي للصلاحيات قبل العملية
+      try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
       const { error } = await State.supabase.from('stores').update({ is_blocked: block }).eq('id', storeId);
       if (error) throw error;
       await logAction(block ? 'user_block' : 'user_unblock', 'store', storeId, s?.name, {});
@@ -2960,6 +2979,8 @@ App.Users = {
     const s = this.all.find(x => x.id === storeId);
     confirmDialog(`هل أنت متأكد من حذف المتجر "${s?.name}"؟ هذا الإجراء لا يمكن التراجع عنه وسيحذف كل المنتجات والطلبات المرتبطة به.`, async () => {
       try {
+        // ✨ إصلاح تلقائي للصلاحيات قبل العملية
+        try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
         const { error } = await State.supabase.from('stores').delete().eq('id', storeId);
         if (error) throw error;
         await logAction('user_delete', 'store', storeId, s?.name, {});
