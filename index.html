@@ -4020,7 +4020,12 @@ App.Plans = {
       pixel_gtm: $('#newPlanPixelGtm')?.checked || false,
       pixel_capi: $('#newPlanPixelCapi')?.checked || false,
     };
+    // ✅ إصلاح جذري: id حقل إلزامي (text primary key بدون default في schema).
+    // المنصة تستعمل id = slug (مثل free→'free', pro→'pro'). بدون id يفشل الإدراج
+    // بـ "null value in column id violates not-null constraint".
+    const planId = slug;
     const plan = {
+      id: planId,          // ✅ ضروري — بدون هذا الإدراج يفشل دائمًا
       name, slug,
       price_monthly: parseFloat($('#newPlanMonthly').value) || 0,
       price_yearly: parseFloat($('#newPlanYearly').value) || 0,
@@ -4044,8 +4049,10 @@ App.Plans = {
     try {
       // ✨ إصلاح تلقائي للصلاحيات قبل العملية
       try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
-      // محاولة إدراج مع حقول Pixel
-      let { data: insertedData, error } = await State.supabase.from('plans').insert({ ...plan, ...pixelFields }).select('id');
+      // ✨ progressive fallback: جرّب مع كل الحقول أولاً، ثم أزل المجموعات غير الحرجة تدريجيًا
+      const allFields = { ...plan, ...pixelFields };
+      let { data: insertedData, error } = await State.supabase.from('plans').insert(allFields).select('id');
+
       // ✨ لو فشل بسبب أعمدة Pixel غير موجودة، أعد المحاولة بدونها
       if (error && error.message && error.message.includes('pixel_')) {
         console.warn('[Plans] أعمدة Pixel غير موجودة — أعد المحاولة بدونها. طبّق migration_plans_pixel_services.sql');
@@ -4053,18 +4060,27 @@ App.Plans = {
         error = res2.error;
         insertedData = res2.data;
       }
-      if (error) throw error;
-      // ✨ التحقق من أن الإضافة تمت فعلياً
-      if (!insertedData || insertedData.length === 0) {
-        throw new Error('الإضافة لم تتم — لا تملك صلاحية. تأكد أن حسابك في admin_users بـ is_active=true');
+      // ✨ لو فشل بسبب أعمدة extensions غير موجودة، أعد المحاولة بالحقول الأساسية فقط
+      if (error && error.message && (error.message.includes('max_') || error.message.includes('daily_orders') || error.message.includes('commission') || error.message.includes('ai_features') || error.message.includes('shipping_integration') || error.message.includes('advanced_reports') || error.message.includes('export_pdf_csv') || error.message.includes('allowed_templates'))) {
+        console.warn('[Plans] أعمدة extensions غير موجودة — أعد المحاولة بالأساسي فقط. طبّق migration_plans_extensions.sql');
+        const corePlan = { id: planId, name, slug, price_monthly: plan.price_monthly, price_yearly: plan.price_yearly, duration_days: plan.duration_days, sort_order: plan.sort_order, features, is_active: true };
+        const res3 = await State.supabase.from('plans').insert(corePlan).select('id');
+        error = res3.error;
+        insertedData = res3.data;
       }
-      await logAction('plan_create', 'plan', null, name, plan);
-      toast('تم إنشاء الباقة', 'success');
+      if (error) throw error;
+      // ✨ التحقق من أن الإضافة تمت فعلياً (RLS قد يرجع data=null بدون error)
+      if (!insertedData || insertedData.length === 0) {
+        throw new Error('الإضافة لم تتم — على الأرجح RLS يمنع العملية. تأكد أن حسابك في admin_users بـ is_active=true و profiles.role=admin. طبّق migration_auto_setup_admin.sql من مستودع shopevelo.');
+      }
+      await logAction('plan_create', 'plan', planId, name, plan);
+      toast('تم إنشاء الباقة بنجاح', 'success');
       closeAllModals();
       await this.load();
       this.render();
     } catch (e) {
-      toast('فشل الإنشاء: ' + e.message, 'error');
+      console.error('[Plans.saveNew] فشل:', e);
+      toast('فشل الإنشاء: ' + e.message, 'error', 8000);
     }
   },
 
@@ -4275,8 +4291,9 @@ App.Plans = {
     try {
       // ✨ إصلاح تلقائي للصلاحيات قبل العملية
       try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
-      // محاولة تحديث مع حقول Pixel
-      let { data: updatedData, error } = await State.supabase.from('plans').update({ ...updates, ...pixelFields }).eq('id', planId).select('id');
+      // ✨ progressive fallback: جرّب مع كل الحقول (بما فيها pixel) أولاً
+      const allUpdates = { ...updates, ...pixelFields };
+      let { data: updatedData, error } = await State.supabase.from('plans').update(allUpdates).eq('id', planId).select('id');
       // ✨ لو فشل بسبب أعمدة Pixel غير موجودة، أعد المحاولة بدونها
       if (error && error.message && error.message.includes('pixel_')) {
         console.warn('[Plans] أعمدة Pixel غير موجودة — أعد المحاولة بدونها. طبّق migration_plans_pixel_services.sql');
@@ -4284,18 +4301,27 @@ App.Plans = {
         error = res2.error;
         updatedData = res2.data;
       }
+      // ✨ لو فشل بسبب أعمدة extensions، أعد المحاولة بالأساسي فقط
+      if (error && error.message && (error.message.includes('max_') || error.message.includes('daily_orders') || error.message.includes('commission') || error.message.includes('ai_features') || error.message.includes('shipping_integration') || error.message.includes('advanced_reports') || error.message.includes('export_pdf_csv') || error.message.includes('allowed_templates'))) {
+        console.warn('[Plans] أعمدة extensions غير موجودة — أعد المحاولة بالأساسي فقط.');
+        const coreUpdates = { name: updates.name, slug: updates.slug, price_monthly: updates.price_monthly, price_yearly: updates.price_yearly, duration_days: updates.duration_days, sort_order: updates.sort_order, features: updates.features, is_active: updates.is_active };
+        const res3 = await State.supabase.from('plans').update(coreUpdates).eq('id', planId).select('id');
+        error = res3.error;
+        updatedData = res3.data;
+      }
       if (error) throw error;
-      // ✨ التحقق من أن التحديث تم فعلياً
+      // ✨ التحقق من أن التحديث تم فعلياً (RLS قد يرجع data=null بدون error)
       if (!updatedData || updatedData.length === 0) {
-        throw new Error('التحديث لم يتم — لا تملك صلاحية. تأكد أن حسابك في admin_users بـ is_active=true');
+        throw new Error('التحديث لم يتم — على الأرجح RLS يمنع العملية. تأكد أن حسابك في admin_users بـ is_active=true. طبّق migration_auto_setup_admin.sql من مستودع shopevelo.');
       }
       await logAction('plan_update', 'plan', planId, updates.name, updates);
-      toast('تم تحديث الباقة', 'success');
+      toast('تم تحديث الباقة بنجاح', 'success');
       closeAllModals();
       await this.load();
       this.render();
     } catch (e) {
-      toast('فشل التحديث: ' + e.message, 'error');
+      console.error('[Plans.saveEdit] فشل:', e);
+      toast('فشل التحديث: ' + e.message, 'error', 8000);
     }
   },
 
