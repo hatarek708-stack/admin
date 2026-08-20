@@ -2939,8 +2939,13 @@ App.Users = {
     try {
       // ✨ إصلاح تلقائي للصلاحيات قبل العملية
       try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
-      const { error } = await State.supabase.from('stores').update(updates).eq('id', storeId);
+      // ✨ استخدام select() للتحقق من أن التحديث أثر فعلياً على صفوف
+      const { data: updatedData, error } = await State.supabase.from('stores').update(updates).eq('id', storeId).select('id');
       if (error) throw error;
+      // ✨ التحقق من أن التحديث أثر على صف (لو 0 صفوف، RLS تمنع العملية)
+      if (!updatedData || updatedData.length === 0) {
+        throw new Error('التحديث لم يتم — لا تملك صلاحية. تأكد أن حسابك في admin_users بـ is_active=true و profiles.role=admin');
+      }
       await logAction(renewDays > 0 ? 'subscription_renew' : 'plan_change', 'store', storeId, updates.name, updates);
       if (renewDays > 0) {
         const plan = State.plans.find(p => p.id === updates.plan_id);
@@ -2967,8 +2972,11 @@ App.Users = {
     try {
       // ✨ إصلاح تلقائي للصلاحيات قبل العملية
       try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
-      const { error } = await State.supabase.from('stores').update({ is_blocked: block }).eq('id', storeId);
+      const { data: updatedData, error } = await State.supabase.from('stores').update({ is_blocked: block }).eq('id', storeId).select('id');
       if (error) throw error;
+      if (!updatedData || updatedData.length === 0) {
+        throw new Error('التحديث لم يتم — لا تملك صلاحية. تأكد أن حسابك في admin_users');
+      }
       await logAction(block ? 'user_block' : 'user_unblock', 'store', storeId, s?.name, {});
       toast(block ? 'تم حظر المتجر' : 'تم تفعيل المتجر', 'success');
       this.load();
@@ -2983,8 +2991,11 @@ App.Users = {
       try {
         // ✨ إصلاح تلقائي للصلاحيات قبل العملية
         try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
-        const { error } = await State.supabase.from('stores').delete().eq('id', storeId);
+        const { data: deletedData, error } = await State.supabase.from('stores').delete().eq('id', storeId).select('id');
         if (error) throw error;
+        if (!deletedData || deletedData.length === 0) {
+          throw new Error('الحذف لم يتم — لا تملك صلاحية. تأكد أن حسابك في admin_users');
+        }
         await logAction('user_delete', 'store', storeId, s?.name, {});
         toast('تم حذف المتجر', 'success');
         this.load();
@@ -3938,14 +3949,19 @@ App.Plans = {
       // ✨ إصلاح تلقائي للصلاحيات قبل العملية
       try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
       // محاولة إدراج مع حقول Pixel
-      let { error } = await State.supabase.from('plans').insert({ ...plan, ...pixelFields });
+      let { data: insertedData, error } = await State.supabase.from('plans').insert({ ...plan, ...pixelFields }).select('id');
       // ✨ لو فشل بسبب أعمدة Pixel غير موجودة، أعد المحاولة بدونها
       if (error && error.message && error.message.includes('pixel_')) {
         console.warn('[Plans] أعمدة Pixel غير موجودة — أعد المحاولة بدونها. طبّق migration_plans_pixel_services.sql');
-        const { error: error2 } = await State.supabase.from('plans').insert(plan);
-        error = error2;
+        const res2 = await State.supabase.from('plans').insert(plan).select('id');
+        error = res2.error;
+        insertedData = res2.data;
       }
       if (error) throw error;
+      // ✨ التحقق من أن الإضافة تمت فعلياً
+      if (!insertedData || insertedData.length === 0) {
+        throw new Error('الإضافة لم تتم — لا تملك صلاحية. تأكد أن حسابك في admin_users بـ is_active=true');
+      }
       await logAction('plan_create', 'plan', null, name, plan);
       toast('تم إنشاء الباقة', 'success');
       closeAllModals();
@@ -4164,14 +4180,19 @@ App.Plans = {
       // ✨ إصلاح تلقائي للصلاحيات قبل العملية
       try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
       // محاولة تحديث مع حقول Pixel
-      let { error } = await State.supabase.from('plans').update({ ...updates, ...pixelFields }).eq('id', planId);
+      let { data: updatedData, error } = await State.supabase.from('plans').update({ ...updates, ...pixelFields }).eq('id', planId).select('id');
       // ✨ لو فشل بسبب أعمدة Pixel غير موجودة، أعد المحاولة بدونها
       if (error && error.message && error.message.includes('pixel_')) {
         console.warn('[Plans] أعمدة Pixel غير موجودة — أعد المحاولة بدونها. طبّق migration_plans_pixel_services.sql');
-        const { error: error2 } = await State.supabase.from('plans').update(updates).eq('id', planId);
-        error = error2;
+        const res2 = await State.supabase.from('plans').update(updates).eq('id', planId).select('id');
+        error = res2.error;
+        updatedData = res2.data;
       }
       if (error) throw error;
+      // ✨ التحقق من أن التحديث تم فعلياً
+      if (!updatedData || updatedData.length === 0) {
+        throw new Error('التحديث لم يتم — لا تملك صلاحية. تأكد أن حسابك في admin_users بـ is_active=true');
+      }
       await logAction('plan_update', 'plan', planId, updates.name, updates);
       toast('تم تحديث الباقة', 'success');
       closeAllModals();
@@ -4187,8 +4208,11 @@ App.Plans = {
       const p = State.plans.find(x => x.id === planId);
       // ✨ إصلاح تلقائي للصلاحيات قبل العملية
       try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
-      const { error } = await State.supabase.from('plans').update({ is_active: active }).eq('id', planId);
+      const { data: updatedData, error } = await State.supabase.from('plans').update({ is_active: active }).eq('id', planId).select('id');
       if (error) throw error;
+      if (!updatedData || updatedData.length === 0) {
+        throw new Error('التحديث لم يتم — لا تملك صلاحية. تأكد أن حسابك في admin_users');
+      }
       await logAction('plan_update', 'plan', planId, p?.name, { is_active: active });
       toast(active ? 'تم تفعيل الباقة' : 'تم تعطيل الباقة', 'success');
       await this.load();
@@ -4204,8 +4228,11 @@ App.Plans = {
       try {
         // ✨ إصلاح تلقائي للصلاحيات قبل العملية
         try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
-        const { error } = await State.supabase.from('plans').delete().eq('id', planId);
+        const { data: deletedData, error } = await State.supabase.from('plans').delete().eq('id', planId).select('id');
         if (error) throw error;
+        if (!deletedData || deletedData.length === 0) {
+          throw new Error('الحذف لم يتم — لا تملك صلاحية. تأكد أن حسابك في admin_users');
+        }
         await logAction('plan_delete', 'plan', planId, p?.name, {});
         toast('تم حذف الباقة', 'success');
         await this.load();
