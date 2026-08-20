@@ -3671,6 +3671,16 @@ App.Plans = {
         { label: 'تقارير', on: p.advanced_reports },
         { label: 'PDF/CSV', on: p.export_pdf_csv }
       ];
+      // ✨ شارات خدمات Pixel
+      const pixelServices = [
+        { label: '📘 FB', on: p.pixel_facebook },
+        { label: '📸 IG', on: p.pixel_instagram },
+        { label: '🎵 TT', on: p.pixel_tiktok },
+        { label: '👻 Snap', on: p.pixel_snap },
+        { label: '📊 GA', on: p.pixel_ga },
+        { label: '🏷️ GTM', on: p.pixel_gtm },
+        { label: '⚡ CAPI', on: p.pixel_capi }
+      ].filter(s => s.on);
       return `
         <div class="card" style="display:flex; flex-direction:column;">
           <div style="padding: 20px; flex: 1;">
@@ -3692,9 +3702,17 @@ App.Plans = {
             </div>
             
             <!-- شارات الميزات -->
-            <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px;">
+            <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
               ${toggles.map(t => `<span class="badge ${t.on ? 'badge-success' : 'badge-default'}" style="font-size:10px;">${t.label} ${t.on ? '✓' : '✗'}</span>`).join('')}
             </div>
+            
+            <!-- شارات خدمات Pixel -->
+            ${pixelServices.length > 0 ? `
+              <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
+                <span style="font-size:10px; color:var(--gray-500); align-self:center;">Pixel:</span>
+                ${pixelServices.map(s => `<span class="badge badge-info" style="font-size:10px;">${s.label}</span>`).join('')}
+              </div>
+            ` : ''}
             
             <!-- القوالب المسموح بها -->
             <div style="font-size:11px; color:var(--gray-500); margin-bottom:8px;">القوالب: ${templatesLabels}</div>
@@ -3803,6 +3821,42 @@ App.Plans = {
             </select>
           </div>
           
+          <!-- ─── خدمات Pixel ─── -->
+          <div class="form-field full">
+            <label>🎯 خدمات Pixel والتتبع</label>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; padding:10px; background:var(--gray-50); border-radius:8px;">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="newPlanPixelFacebook" /> 
+                <span><strong>📘 Facebook Pixel</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="newPlanPixelInstagram" /> 
+                <span><strong>📸 Instagram Pixel</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="newPlanPixelTiktok" /> 
+                <span><strong>🎵 TikTok Pixel</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="newPlanPixelSnap" /> 
+                <span><strong>👻 Snap Pixel</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="newPlanPixelGa" /> 
+                <span><strong>📊 Google Analytics</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="newPlanPixelGtm" /> 
+                <span><strong>🏷️ Google Tag Manager</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="newPlanPixelCapi" /> 
+                <span><strong>⚡ Conversions API (CAPI)</strong></span>
+              </label>
+            </div>
+            <span class="hint">حدد خدمات Pixel والتتبع التي يمكن للمتاجر استخدامها ضمن هذه الباقة</span>
+          </div>
+          
           <!-- ─── القوالب المسموح بها ─── -->
           <div class="form-field full">
             <label>القوالب المسموح باستخدامها</label>
@@ -3867,10 +3921,20 @@ App.Plans = {
       shipping_integration: $('#newPlanShippingIntegration').value === 'true',
       advanced_reports: $('#newPlanAdvancedReports').value === 'true',
       export_pdf_csv: $('#newPlanExportPdfCsv').value === 'true',
+      // ─── خدمات Pixel ───
+      pixel_facebook: $('#newPlanPixelFacebook')?.checked || false,
+      pixel_instagram: $('#newPlanPixelInstagram')?.checked || false,
+      pixel_tiktok: $('#newPlanPixelTiktok')?.checked || false,
+      pixel_snap: $('#newPlanPixelSnap')?.checked || false,
+      pixel_ga: $('#newPlanPixelGa')?.checked || false,
+      pixel_gtm: $('#newPlanPixelGtm')?.checked || false,
+      pixel_capi: $('#newPlanPixelCapi')?.checked || false,
       // ─── القوالب المسموح بها ───
       allowed_templates: allowedTemplates
     };
     try {
+      // ✨ إصلاح تلقائي للصلاحيات قبل العملية
+      try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
       const { error } = await State.supabase.from('plans').insert(plan);
       if (error) throw error;
       await logAction('plan_create', 'plan', null, name, plan);
@@ -3969,6 +4033,42 @@ App.Plans = {
               <option value="false" ${!p.export_pdf_csv ? 'selected' : ''}>معطّل</option>
             </select>
           </div>
+          
+          <!-- ─── خدمات Pixel ─── -->
+          <div class="form-field full">
+            <label>🎯 خدمات Pixel والتتبع</label>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; padding:10px; background:var(--gray-50); border-radius:8px;">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="editPlanPixelFacebook" ${p.pixel_facebook ? 'checked' : ''} /> 
+                <span><strong>📘 Facebook Pixel</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="editPlanPixelInstagram" ${p.pixel_instagram ? 'checked' : ''} /> 
+                <span><strong>📸 Instagram Pixel</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="editPlanPixelTiktok" ${p.pixel_tiktok ? 'checked' : ''} /> 
+                <span><strong>🎵 TikTok Pixel</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="editPlanPixelSnap" ${p.pixel_snap ? 'checked' : ''} /> 
+                <span><strong>👻 Snap Pixel</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="editPlanPixelGa" ${p.pixel_ga ? 'checked' : ''} /> 
+                <span><strong>📊 Google Analytics</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="editPlanPixelGtm" ${p.pixel_gtm ? 'checked' : ''} /> 
+                <span><strong>🏷️ Google Tag Manager</strong></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:6px; background:white; border-radius:6px; border:1px solid var(--gray-200);">
+                <input type="checkbox" id="editPlanPixelCapi" ${p.pixel_capi ? 'checked' : ''} /> 
+                <span><strong>⚡ Conversions API (CAPI)</strong></span>
+              </label>
+            </div>
+          </div>
+          
           <div class="form-field">
             <label>الحالة</label>
             <select id="editPlanActive">
@@ -4038,10 +4138,20 @@ App.Plans = {
       shipping_integration: $('#editPlanShippingIntegration').value === 'true',
       advanced_reports: $('#editPlanAdvancedReports').value === 'true',
       export_pdf_csv: $('#editPlanExportPdfCsv').value === 'true',
+      // ─── خدمات Pixel ───
+      pixel_facebook: $('#editPlanPixelFacebook')?.checked || false,
+      pixel_instagram: $('#editPlanPixelInstagram')?.checked || false,
+      pixel_tiktok: $('#editPlanPixelTiktok')?.checked || false,
+      pixel_snap: $('#editPlanPixelSnap')?.checked || false,
+      pixel_ga: $('#editPlanPixelGa')?.checked || false,
+      pixel_gtm: $('#editPlanPixelGtm')?.checked || false,
+      pixel_capi: $('#editPlanPixelCapi')?.checked || false,
       // ─── القوالب المسموح بها ───
       allowed_templates: allowedTemplates
     };
     try {
+      // ✨ إصلاح تلقائي للصلاحيات قبل العملية
+      try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
       const { error } = await State.supabase.from('plans').update(updates).eq('id', planId);
       if (error) throw error;
       await logAction('plan_update', 'plan', planId, updates.name, updates);
@@ -4057,6 +4167,8 @@ App.Plans = {
   async toggle(planId, active) {
     try {
       const p = State.plans.find(x => x.id === planId);
+      // ✨ إصلاح تلقائي للصلاحيات قبل العملية
+      try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
       const { error } = await State.supabase.from('plans').update({ is_active: active }).eq('id', planId);
       if (error) throw error;
       await logAction('plan_update', 'plan', planId, p?.name, { is_active: active });
@@ -4072,6 +4184,8 @@ App.Plans = {
     const p = State.plans.find(x => x.id === planId);
     confirmDialog(`هل تريد حذف باقة "${p?.name}"؟ المتاجر المرتبطة بها ستفقد رابط الباقة.`, async () => {
       try {
+        // ✨ إصلاح تلقائي للصلاحيات قبل العملية
+        try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
         const { error } = await State.supabase.from('plans').delete().eq('id', planId);
         if (error) throw error;
         await logAction('plan_delete', 'plan', planId, p?.name, {});
