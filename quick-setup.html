@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShopeVelo — إعداد سريع</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: linear-gradient(135deg, #059669 0%, #047857 100%);
+      color: #1e293b;
+      padding: 20px;
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container { max-width: 700px; margin: 0 auto; width: 100%; }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 20px 25px -5px rgba(0,0,0,0.2);
+    }
+    h1 { color: #059669; text-align: center; margin-bottom: 10px; font-size: 24px; }
+    .subtitle { text-align: center; color: #64748b; margin-bottom: 25px; font-size: 14px; }
+    .step {
+      background: #f1f5f9;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 15px;
+      border-right: 4px solid #059669;
+    }
+    .step-num {
+      display: inline-block;
+      background: #059669;
+      color: white;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 28px;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+    .step-title { font-weight: 600; font-size: 16px; margin-bottom: 8px; }
+    .step-desc { font-size: 14px; color: #475569; margin-bottom: 10px; }
+    input {
+      width: 100%;
+      padding: 12px;
+      margin: 5px 0;
+      border: 2px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    input:focus { outline: none; border-color: #059669; }
+    button {
+      background: #059669;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      font-family: inherit;
+      width: 100%;
+      margin-top: 10px;
+    }
+    button:hover { background: #047857; }
+    button.secondary { background: #64748b; }
+    button.secondary:hover { background: #475569; }
+    .result {
+      display: none;
+      margin-top: 20px;
+      padding: 20px;
+      border-radius: 12px;
+    }
+    .result.show { display: block; }
+    .result.success { background: #dcfce7; border-right: 4px solid #16a34a; }
+    .result.error { background: #fee2e2; border-right: 4px solid #dc2626; }
+    .result.warning { background: #fef3c7; border-right: 4px solid #d97706; }
+    .code-box {
+      background: #1e293b;
+      color: #a7f3d0;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      direction: ltr;
+      text-align: left;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin: 10px 0;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .user-id-box {
+      background: #1e293b;
+      color: #fbbf24;
+      padding: 10px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 12px;
+      word-break: break-all;
+      direction: ltr;
+      text-align: center;
+      margin: 10px 0;
+      border: 2px solid #fbbf24;
+    }
+    .btn-row { display: flex; gap: 10px; }
+    .btn-row button { width: auto; flex: 1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>🚀 إعداد سريع لـ ShopeVelo Admin</h1>
+      <p class="subtitle">هذه الصفحة ستحصل لك على SQL جاهز لإعداد حسابك كأدمن</p>
+
+      <div class="step">
+        <div class="step-title"><span class="step-num">1</span> سجّل دخولك</div>
+        <div class="step-desc">استخدم نفس بريد admin-local</div>
+        <input type="email" id="email" placeholder="البريد الإلكتروني" />
+        <input type="password" id="password" placeholder="كلمة المرور" />
+        <button onclick="getSetupSQL()">🔍 احصل على SQL جاهز</button>
+      </div>
+
+      <div id="result" class="result"></div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://tgqkathfzrnkiyxwzkbc.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_MnDIdSEFp9UrLmvC0Y2k4g_Tp74iXHb';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false }
+    });
+
+    let currentUser = null;
+
+    async function getSetupSQL() {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const resultDiv = document.getElementById('result');
+
+      if (!email || !password) {
+        showResult('warning', '⚠️ أدخل البريد وكلمة المرور');
+        return;
+      }
+
+      resultDiv.className = 'result show warning';
+      resultDiv.innerHTML = '<p>⏳ جارٍ تسجيل الدخول...</p>';
+
+      try {
+        // 1) تسجيل الدخول
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+        if (authError) throw authError;
+        currentUser = authData.user;
+
+        const userId = currentUser.id;
+        const userEmail = currentUser.email || email;
+
+        // 2) محاولة auto_setup_first_admin
+        let autoSetup = false;
+        try {
+          const { data: setupResult } = await supabase.rpc('auto_setup_first_admin');
+          if (setupResult && setupResult.success === true) {
+            autoSetup = true;
+          }
+        } catch (e) {
+          // RPC غير موجود — سنعطي SQL يدوي
+        }
+
+        // 3) فحص هل المستخدم أدمن
+        const { data: adminRec } = await supabase
+          .from('admin_users')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (adminRec && adminRec.is_active) {
+          showResult('success', `
+            <h3 style="color:#16a34a; margin-bottom:10px;">✅ حسابك مُعد بالفعل!</h3>
+            <p style="margin-bottom:10px;">أنت أدمن نشط بدور: <strong>${adminRec.role}</strong></p>
+            <p>افتح admin-local مباشرة:</p>
+            <div class="btn-row" style="margin-top:10px;">
+              <button onclick="window.open('https://hatarek708-stack.github.io/admin/', '_blank')">🔗 فتح admin-local</button>
+            </div>
+          `);
+          return;
+        }
+
+        // 4) لو auto_setup_first_admin نجح
+        if (autoSetup) {
+          showResult('success', `
+            <h3 style="color:#16a34a; margin-bottom:10px;">✅ تم إعدادك كأدمن تلقائيًا!</h3>
+            <p style="margin-bottom:10px;">User ID: <code>${userId}</code></p>
+            <p>افتح admin-local الآن:</p>
+            <div class="btn-row" style="margin-top:10px;">
+              <button onclick="window.open('https://hatarek708-stack.github.io/admin/', '_blank')">🔗 فتح admin-local</button>
+            </div>
+          `);
+          return;
+        }
+
+        // 5) عرض SQL جاهز
+        const sql = `-- ✅ انسخ هذا SQL والصقه في Supabase SQL Editor ثم اضغط Run
+-- افتح: https://supabase.com/dashboard/project/tgqkathfzrnkiyxwzkbc/sql/new
+
+-- 1) إضافة حسابك كأدمن
+INSERT INTO admin_users (user_id, email, role, is_active, full_name)
+VALUES ('${userId}', '${userEmail}', 'super_admin', true, 'Super Admin')
+ON CONFLICT (user_id) DO UPDATE
+  SET is_active = true,
+      role = 'super_admin',
+      updated_at = now();
+
+-- 2) ضبط profiles.role = admin
+INSERT INTO profiles (id, email, role)
+VALUES ('${userId}', '${userEmail}', 'admin')
+ON CONFLICT (id) DO UPDATE SET role = 'admin';
+
+-- 3) تطبيق migration_auto_setup_admin.sql كامل
+--    (لإنشاء RPCs وإصلاح RLS)
+--    من: https://raw.githubusercontent.com/hatarek708-stack/shopevelo/main/supabase/migration_auto_setup_admin.sql`;
+
+        showResult('warning', `
+          <h3 style="color:#d97706; margin-bottom:10px;">⚠️ حسابك غير مُعد كأدمن</h3>
+          <p style="margin-bottom:10px;"><strong>User ID الخاص بك:</strong></p>
+          <div class="user-id-box">${userId}</div>
+          <p style="margin-bottom:10px;"><strong>📧 Email:</strong> ${userEmail}</p>
+          <p style="margin-bottom:10px; font-weight:600;">📋 الخطوة التالية: انسخ SQL التالي والصقه في Supabase SQL Editor:</p>
+          <div class="code-box" id="sqlBox">${sql}</div>
+          <div class="btn-row">
+            <button onclick="copySQL()">📋 نسخ SQL</button>
+            <button class="secondary" onclick="window.open('https://supabase.com/dashboard/project/tgqkathfzrnkiyxwzkbc/sql/new', '_blank')">🔗 فتح SQL Editor</button>
+          </div>
+          <p style="margin-top:15px; font-size:13px; color:#64748b;">بعد تطبيق SQL، ارجع لهذه الصفحة واضغط "احصل على SQL" مرة أخرى للتحقق.</p>
+        `);
+
+      } catch (e) {
+        showResult('error', `
+          <h3 style="color:#dc2626; margin-bottom:10px;">❌ فشل تسجيل الدخول</h3>
+          <p>${e.message}</p>
+          <p style="margin-top:10px; font-size:13px;">تأكد من صحة البريد وكلمة المرور. لو لا تملك حساب، أنشئ حساب في Supabase Authentication أولاً.</p>
+        `);
+      }
+    }
+
+    function showResult(type, html) {
+      const resultDiv = document.getElementById('result');
+      resultDiv.className = 'result show ' + type;
+      resultDiv.innerHTML = html;
+    }
+
+    function copySQL() {
+      const box = document.getElementById('sqlBox');
+      if (!box) return;
+      const text = box.textContent;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+          alert('✅ تم نسخ SQL! الصقه في Supabase SQL Editor واضغط Run');
+        }).catch(() => {
+          fallbackCopy(text);
+        });
+      } else {
+        fallbackCopy(text);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch(_) {}
+      document.body.removeChild(ta);
+      alert('✅ تم نسخ SQL! الصقه في Supabase SQL Editor واضغط Run');
+    }
+  </script>
+</body>
+</html>
