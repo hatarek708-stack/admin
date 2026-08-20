@@ -3903,6 +3903,16 @@ App.Plans = {
     if ($('#newPlanTplZephyr')?.checked) allowedTemplates.push('zephyr');
     if ($('#newPlanTplNoir')?.checked) allowedTemplates.push('noir');
     if ($('#newPlanTplNeon')?.checked) allowedTemplates.push('neon');
+    // ✨ جمع خدمات Pixel المختارة
+    const pixelFields = {
+      pixel_facebook: $('#newPlanPixelFacebook')?.checked || false,
+      pixel_instagram: $('#newPlanPixelInstagram')?.checked || false,
+      pixel_tiktok: $('#newPlanPixelTiktok')?.checked || false,
+      pixel_snap: $('#newPlanPixelSnap')?.checked || false,
+      pixel_ga: $('#newPlanPixelGa')?.checked || false,
+      pixel_gtm: $('#newPlanPixelGtm')?.checked || false,
+      pixel_capi: $('#newPlanPixelCapi')?.checked || false,
+    };
     const plan = {
       name, slug,
       price_monthly: parseFloat($('#newPlanMonthly').value) || 0,
@@ -3921,21 +3931,20 @@ App.Plans = {
       shipping_integration: $('#newPlanShippingIntegration').value === 'true',
       advanced_reports: $('#newPlanAdvancedReports').value === 'true',
       export_pdf_csv: $('#newPlanExportPdfCsv').value === 'true',
-      // ─── خدمات Pixel ───
-      pixel_facebook: $('#newPlanPixelFacebook')?.checked || false,
-      pixel_instagram: $('#newPlanPixelInstagram')?.checked || false,
-      pixel_tiktok: $('#newPlanPixelTiktok')?.checked || false,
-      pixel_snap: $('#newPlanPixelSnap')?.checked || false,
-      pixel_ga: $('#newPlanPixelGa')?.checked || false,
-      pixel_gtm: $('#newPlanPixelGtm')?.checked || false,
-      pixel_capi: $('#newPlanPixelCapi')?.checked || false,
       // ─── القوالب المسموح بها ───
       allowed_templates: allowedTemplates
     };
     try {
       // ✨ إصلاح تلقائي للصلاحيات قبل العملية
       try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
-      const { error } = await State.supabase.from('plans').insert(plan);
+      // محاولة إدراج مع حقول Pixel
+      let { error } = await State.supabase.from('plans').insert({ ...plan, ...pixelFields });
+      // ✨ لو فشل بسبب أعمدة Pixel غير موجودة، أعد المحاولة بدونها
+      if (error && error.message && error.message.includes('pixel_')) {
+        console.warn('[Plans] أعمدة Pixel غير موجودة — أعد المحاولة بدونها. طبّق migration_plans_pixel_services.sql');
+        const { error: error2 } = await State.supabase.from('plans').insert(plan);
+        error = error2;
+      }
       if (error) throw error;
       await logAction('plan_create', 'plan', null, name, plan);
       toast('تم إنشاء الباقة', 'success');
@@ -4119,6 +4128,16 @@ App.Plans = {
     if ($('#editPlanTplZephyr')?.checked) allowedTemplates.push('zephyr');
     if ($('#editPlanTplNoir')?.checked) allowedTemplates.push('noir');
     if ($('#editPlanTplNeon')?.checked) allowedTemplates.push('neon');
+    // ✨ جمع خدمات Pixel المختارة
+    const pixelFields = {
+      pixel_facebook: $('#editPlanPixelFacebook')?.checked || false,
+      pixel_instagram: $('#editPlanPixelInstagram')?.checked || false,
+      pixel_tiktok: $('#editPlanPixelTiktok')?.checked || false,
+      pixel_snap: $('#editPlanPixelSnap')?.checked || false,
+      pixel_ga: $('#editPlanPixelGa')?.checked || false,
+      pixel_gtm: $('#editPlanPixelGtm')?.checked || false,
+      pixel_capi: $('#editPlanPixelCapi')?.checked || false,
+    };
     const updates = {
       name: $('#editPlanName').value.trim(),
       slug: $('#editPlanSlug').value.trim().toLowerCase(),
@@ -4138,21 +4157,20 @@ App.Plans = {
       shipping_integration: $('#editPlanShippingIntegration').value === 'true',
       advanced_reports: $('#editPlanAdvancedReports').value === 'true',
       export_pdf_csv: $('#editPlanExportPdfCsv').value === 'true',
-      // ─── خدمات Pixel ───
-      pixel_facebook: $('#editPlanPixelFacebook')?.checked || false,
-      pixel_instagram: $('#editPlanPixelInstagram')?.checked || false,
-      pixel_tiktok: $('#editPlanPixelTiktok')?.checked || false,
-      pixel_snap: $('#editPlanPixelSnap')?.checked || false,
-      pixel_ga: $('#editPlanPixelGa')?.checked || false,
-      pixel_gtm: $('#editPlanPixelGtm')?.checked || false,
-      pixel_capi: $('#editPlanPixelCapi')?.checked || false,
       // ─── القوالب المسموح بها ───
       allowed_templates: allowedTemplates
     };
     try {
       // ✨ إصلاح تلقائي للصلاحيات قبل العملية
       try { await State.supabase.rpc('ensure_admin_role'); } catch(_) {}
-      const { error } = await State.supabase.from('plans').update(updates).eq('id', planId);
+      // محاولة تحديث مع حقول Pixel
+      let { error } = await State.supabase.from('plans').update({ ...updates, ...pixelFields }).eq('id', planId);
+      // ✨ لو فشل بسبب أعمدة Pixel غير موجودة، أعد المحاولة بدونها
+      if (error && error.message && error.message.includes('pixel_')) {
+        console.warn('[Plans] أعمدة Pixel غير موجودة — أعد المحاولة بدونها. طبّق migration_plans_pixel_services.sql');
+        const { error: error2 } = await State.supabase.from('plans').update(updates).eq('id', planId);
+        error = error2;
+      }
       if (error) throw error;
       await logAction('plan_update', 'plan', planId, updates.name, updates);
       toast('تم تحديث الباقة', 'success');
