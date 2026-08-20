@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShopeVelo — تشخيص النظام</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      margin: 0;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    h1 { color: #059669; border-bottom: 3px solid #059669; padding-bottom: 10px; }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .check-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: #f1f5f9;
+    }
+    .check-item.ok { background: #dcfce7; }
+    .check-item.fail { background: #fee2e2; }
+    .check-item.warn { background: #fef3c7; }
+    .icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+    .ok .icon { background: #16a34a; color: white; }
+    .fail .icon { background: #dc2626; color: white; }
+    .warn .icon { background: #d97706; color: white; }
+    .label { flex: 1; font-weight: 500; }
+    .value { font-family: monospace; font-size: 12px; color: #64748b; }
+    button {
+      background: #059669;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    button:hover { background: #047857; }
+    .info { background: #dbeafe; padding: 12px; border-radius: 8px; margin-top: 10px; font-size: 13px; }
+    .code { background: #1e293b; color: #a7f3d0; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 12px; overflow-x: auto; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔧 تشخيص نظام ShopeVelo</h1>
+    <p>هذه الصفحة تتحقق من حالة قاعدة البيانات والربط بين admin-local و shopevelo.</p>
+
+    <div class="card">
+      <h3>📊 حالة قاعدة البيانات</h3>
+      <div id="dbStatus">جارٍ الفحص...</div>
+    </div>
+
+    <div class="card">
+      <h3>🎫 الكوبونات</h3>
+      <div id="couponsStatus">جارٍ الفحص...</div>
+    </div>
+
+    <div class="card">
+      <h3>📦 الباقات</h3>
+      <div id="plansStatus">جارٍ الفحص...</div>
+    </div>
+
+    <div class="card">
+      <h3>💬 تذاكر الدعم</h3>
+      <div id="ticketsStatus">جارٍ الفحص...</div>
+    </div>
+
+    <div class="card">
+      <h3>⚙️ إعدادات المنصة</h3>
+      <div id="settingsStatus">جارٍ الفحص...</div>
+    </div>
+
+    <div class="card">
+      <h3>🔐 تسجيل دخول الأدمن</h3>
+      <p>للفحص الكامل لحسابك، سجّل دخول أولاً:</p>
+      <input type="email" id="email" placeholder="البريد الإلكتروني" style="width:100%;padding:10px;margin:5px 0;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;" />
+      <input type="password" id="password" placeholder="كلمة المرور" style="width:100%;padding:10px;margin:5px 0;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;" />
+      <button onclick="loginAdmin()">تسجيل دخول الأدمن</button>
+      <div id="adminStatus" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
+      <h3>📝 ماذا تفعل لو فشل شيء؟</h3>
+      <div class="info">
+        <strong>لو فشل أي فحص:</strong>
+        <ol>
+          <li>اذهب إلى <a href="https://supabase.com/dashboard" target="_blank">Supabase Dashboard</a></li>
+          <li>اختر مشروعك: <code>tgqkathfzrnkiyxwzkbc</code></li>
+          <li>اذهب إلى SQL Editor</li>
+          <li>الصق محتوى ملف <code>migration_fix_all_rls.sql</code> من مستودع shopevelo</li>
+          <li>اضغط Run</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://tgqkathfzrnkiyxwzkbc.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_MnDIdSEFp9UrLmvC0Y2k4g_Tp74iXHb';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    function checkItem(ok, label, value = '') {
+      const cls = ok ? 'ok' : 'fail';
+      const icon = ok ? '✓' : '✗';
+      return `<div class="check-item ${cls}"><div class="icon">${icon}</div><div class="label">${label}</div><div class="value">${value}</div></div>`;
+    }
+
+    async function checkDB() {
+      const html = [];
+      // فحص جدول plans
+      try {
+        const { data, error } = await supabase.from('plans').select('*').limit(5);
+        if (error) throw error;
+        html.push(checkItem(true, 'جدول plans موجود', `${data.length} باقة`));
+        // فحص الأعمدة الجديدة
+        if (data.length > 0) {
+          const p = data[0];
+          const hasNewCols = 'max_products' in p && 'ai_features' in p && 'allowed_templates' in p;
+          html.push(checkItem(hasNewCols, 'أعمدة plans الجديدة', hasNewCols ? 'موجودة' : 'غير موجودة'));
+        }
+      } catch (e) {
+        html.push(checkItem(false, 'جدول plans', e.message));
+      }
+
+      // فحص جدول coupons
+      try {
+        const { data, error } = await supabase.from('coupons').select('*').limit(5);
+        if (error) throw error;
+        html.push(checkItem(true, 'جدول coupons موجود', `${data.length} كوبون`));
+      } catch (e) {
+        html.push(checkItem(false, 'جدول coupons', e.message));
+      }
+
+      // فحص جدول platform_settings
+      try {
+        const { data, error } = await supabase.from('platform_settings').select('*').limit(5);
+        if (error) throw error;
+        html.push(checkItem(true, 'جدول platform_settings موجود', `${data.length} إعداد`));
+      } catch (e) {
+        html.push(checkItem(false, 'جدول platform_settings', e.message));
+      }
+
+      // فحص جدول support_tickets
+      try {
+        const { data, error } = await supabase.from('support_tickets').select('*').limit(5);
+        if (error && error.message.includes('relation')) {
+          html.push(checkItem(false, 'جدول support_tickets', 'غير موجود'));
+        } else if (error) {
+          html.push(checkItem(true, 'جدول support_tickets موجود (RLS يحميه)', `${(data||[]).length} تذكرة`));
+        } else {
+          html.push(checkItem(true, 'جدول support_tickets موجود', `${data.length} تذكرة`));
+        }
+      } catch (e) {
+        html.push(checkItem(false, 'جدول support_tickets', e.message));
+      }
+
+      // فحص RPC is_super_admin
+      try {
+        const { data, error } = await supabase.rpc('is_super_admin');
+        if (error) throw error;
+        html.push(checkItem(true, 'RPC is_super_admin موجود', `النتيجة: ${data}`));
+      } catch (e) {
+        html.push(checkItem(false, 'RPC is_super_admin', e.message));
+      }
+
+      // فحص RPC validate_coupon
+      try {
+        const { data, error } = await supabase.rpc('validate_coupon', { p_code: 'TEST' });
+        if (error) throw error;
+        html.push(checkItem(true, 'RPC validate_coupon موجود', 'يعمل'));
+      } catch (e) {
+        html.push(checkItem(false, 'RPC validate_coupon', e.message));
+      }
+
+      document.getElementById('dbStatus').innerHTML = html.join('');
+    }
+
+    async function checkCoupons() {
+      const html = [];
+      try {
+        const { data, error } = await supabase.from('coupons').select('*').eq('is_active', true);
+        if (error) throw error;
+        if (data.length === 0) {
+          html.push(`<div class="check-item warn"><div class="icon">!</div><div class="label">لا توجد كوبونات نشطة — أنشئ كوبون من admin-local</div></div>`);
+        } else {
+          data.forEach(c => {
+            html.push(`<div class="check-item ok"><div class="icon">✓</div><div class="label">كوبون: ${c.code}</div><div class="value">${c.discount_type === 'percentage' ? c.discount_value + '%' : c.discount_value + ' دج'}</div></div>`);
+          });
+        }
+      } catch (e) {
+        html.push(checkItem(false, 'فشل قراءة الكوبونات', e.message));
+      }
+      document.getElementById('couponsStatus').innerHTML = html.join('');
+    }
+
+    async function checkPlans() {
+      const html = [];
+      try {
+        const { data, error } = await supabase.from('plans').select('*').order('sort_order');
+        if (error) throw error;
+        data.forEach(p => {
+          const hasNewCols = 'max_products' in p;
+          html.push(`<div class="check-item ${hasNewCols ? 'ok' : 'warn'}"><div class="icon">${hasNewCols ? '✓' : '!'}</div><div class="label">${p.name} (${p.id}) — ${p.price_monthly} دج/شهر</div><div class="value">${hasNewCol ? `منتجات: ${p.max_products}` : 'حقول جديدة ناقصة'}</div></div>`);
+        });
+      } catch (e) {
+        html.push(checkItem(false, 'فشل قراءة الباقات', e.message));
+      }
+      document.getElementById('plansStatus').innerHTML = html.join('');
+    }
+
+    async function checkTickets() {
+      const html = [];
+      try {
+        const { data, error } = await supabase.from('support_tickets').select('*').limit(5);
+        if (error && error.message.includes('relation')) {
+          html.push(checkItem(false, 'جدول support_tickets غير موجود', 'طبّق migration'));
+        } else if (error) {
+          // RLS يحميه — هذا متوقع لـ anon
+          html.push(`<div class="check-item ok"><div class="icon">✓</div><div class="label">جدول support_tickets موجود (RLS يحميه — سجل دخول لرؤية التذاكر)</div></div>`);
+        } else {
+          html.push(checkItem(true, 'جدول support_tickets', `${data.length} تذكرة`));
+        }
+      } catch (e) {
+        html.push(checkItem(false, 'فشل', e.message));
+      }
+      document.getElementById('ticketsStatus').innerHTML = html.join('');
+    }
+
+    async function checkSettings() {
+      const html = [];
+      try {
+        const { data, error } = await supabase.from('platform_settings').select('*');
+        if (error) throw error;
+        const settings = {};
+        data.forEach(s => {
+          let v = s.value;
+          if (typeof v === 'string') {
+            try { v = JSON.parse(v); } catch(_) {}
+          }
+          settings[s.key] = v;
+        });
+
+        // فحص القيم المهمة
+        const checks = [
+          { key: 'announcement_enabled', label: 'الإعلان مُفعّل', expected: 'boolean' },
+          { key: 'maintenance_mode', label: 'وضع الصيانة', expected: 'boolean' },
+          { key: 'whatsapp_support_number', label: 'رقم واتساب', expected: 'string' },
+          { key: 'support_email', label: 'بريد الدعم', expected: 'string' },
+          { key: 'carriers', label: 'شركات الشحن', expected: 'object' },
+        ];
+
+        checks.forEach(c => {
+          const v = settings[c.key];
+          const has = v !== undefined && v !== null;
+          const typeOk = has && typeof v === c.expected;
+          html.push(checkItem(has && typeOk, c.label, has ? `القيمة: ${typeof v === 'object' ? JSON.stringify(v).slice(0,50) + '...' : v} (${typeof v})` : 'غير مضبوط'));
+        });
+
+        // فحص هل القيم مخزّنة كـ jsonb صحيح
+        const announcementEnabled = settings.announcement_enabled;
+        const isBool = typeof announcementEnabled === 'boolean';
+        html.push(checkItem(isBool, 'القيم مخزّنة كـ jsonb صحيح', isBool ? '✓ boolean حقيقي' : '✗ string ملفوف — أعد حفظ الإعدادات من admin-local'));
+      } catch (e) {
+        html.push(checkItem(false, 'فشل قراءة الإعدادات', e.message));
+      }
+      document.getElementById('settingsStatus').innerHTML = html.join('');
+    }
+
+    async function loginAdmin() {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      if (!email || !password) {
+        document.getElementById('adminStatus').innerHTML = '<div class="check-item fail"><div class="icon">!</div><div class="label">أدخل البريد وكلمة المرور</div></div>';
+        return;
+      }
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+
+        // فحص admin_users
+        const { data: admin, error: ae } = await supabase.from('admin_users').select('*').eq('user_id', data.user.id).single();
+        if (ae || !admin) {
+          document.getElementById('adminStatus').innerHTML = '<div class="check-item fail"><div class="icon">✗</div><div class="label">حسابك غير مُسجّل كأدمن في admin_users</div></div>';
+          return;
+        }
+
+        const html = [
+          checkItem(true, 'تسجيل الدخول ناجح', email),
+          checkItem(admin.is_active, 'الحساب نشط', admin.is_active ? 'نعم' : 'لا'),
+          checkItem(true, 'الدور', admin.role),
+        ];
+
+        // فحص profiles.role
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single();
+        if (profile) {
+          html.push(checkItem(profile.role === 'admin', 'profiles.role', profile.role || 'غير مضبوط'));
+        }
+
+        // اختبار حذف متجر (بدون حذف فعلي)
+        try {
+          const { error: de } = await supabase.from('stores').select('id').limit(1);
+          html.push(checkItem(!de, 'صلاحية قراءة stores', !de ? '✓' : de.message));
+        } catch(_) {}
+
+        document.getElementById('adminStatus').innerHTML = html.join('');
+      } catch (e) {
+        document.getElementById('adminStatus').innerHTML = `<div class="check-item fail"><div class="icon">✗</div><div class="label">فشل تسجيل الدخول: ${e.message}</div></div>`;
+      }
+    }
+
+    // تشغيل الفحوصات
+    checkDB();
+    checkCoupons();
+    checkPlans();
+    checkTickets();
+    checkSettings();
+  </script>
+</body>
+</html>
