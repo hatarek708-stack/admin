@@ -2147,14 +2147,27 @@ const App = {
   async afterLogin(user) {
     State.user = user;
 
+    // ✨ إعداد تلقائي للأدمن الأول: لو لا يوجد super_admin، أضف المستخدم الحالي
+    // هذا يحل مشكلة "حسابك غير مُسجّل كأدمن" نهائياً
+    try {
+      const { data: setupResult, error: setupErr } = await State.supabase.rpc('auto_setup_first_admin');
+      if (setupErr) {
+        console.warn('[ShopeVelo Admin] auto_setup_first_admin غير موجود — طبّق migration_auto_setup_admin.sql');
+      } else if (setupResult) {
+        console.log('[ShopeVelo Admin] auto_setup_first_admin:', setupResult);
+        if (setupResult.success === true && setupResult.action === 'promoted_to_super_admin') {
+          toast('✅ تم تعيينك كأدمن أول تلقائيًا', 'success', 5000);
+        }
+      }
+    } catch (e) {
+      console.warn('[ShopeVelo Admin] فشل auto_setup_first_admin:', e.message);
+    }
+
     // ✨ إصلاح تلقائي للصلاحيات: تأكد من أن profiles.role='admin' للأدمن
-    // هذا يحل مشكلة "لا يمكن حذف/تعديل المتاجر" لو لم يُضبط profiles.role تلقائيًا
     try {
       const { data: fixed, error: fixErr } = await State.supabase.rpc('ensure_admin_role');
       if (fixErr) {
-        console.warn('[ShopeVelo Admin] ensure_admin_role RPC غير موجود — طبّق migration_self_fix_permissions.sql');
-        // ✨ عرض رسالة واضحة للمستخدم
-        toast('⚠️ يجب تطبيق migration_self_fix_permissions.sql لكي يعمل حذف/تعديل المتاجر', 'warning', 10000);
+        console.warn('[ShopeVelo Admin] ensure_admin_role RPC غير موجود');
       } else if (fixed === true) {
         console.log('[ShopeVelo Admin] ✓ تم إصلاح صلاحيات الأدمن تلقائيًا');
       } else {
@@ -2169,10 +2182,27 @@ const App = {
       .from('admin_users')
       .select('*')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();  // ✨ استخدام maybeSingle بدلاً من single لتجنب الخطأ لو لا يوجد سجل
 
     if (error || !profile) {
-      toast('حسابك غير مُسجّل كأدمن. تواصل مع super_admin', 'error', 6000);
+      // ✨ محاولة أخيرة: إضافة المستخدم كأدمن يدوياً (لو auto_setup_first_admin فشل)
+      try {
+        const { data: retry } = await State.supabase.rpc('auto_setup_first_admin');
+        if (retry && retry.success === true) {
+          // إعادة جلب البروفايل
+          const { data: profile2 } = await State.supabase
+            .from('admin_users')
+            .select('*')
+            .eq('user_id', user.id)
+            .maybeSingle();
+          if (profile2) {
+            State.adminProfile = profile2;
+            this.continueAfterLogin(profile2);
+            return;
+          }
+        }
+      } catch (_) {}
+      toast('⚠️ حسابك غير مُسجّل كأدمن. طبّق migration_auto_setup_admin.sql في Supabase SQL Editor', 'error', 8000);
       await State.supabase.auth.signOut();
       this.showLogin();
       return;
@@ -2184,6 +2214,11 @@ const App = {
       return;
     }
 
+    this.continueAfterLogin(profile);
+  },
+
+  // ✨ دالة مساعدة لاستكمال تسجيل الدخول بعد التحقق من البروفايل
+  continueAfterLogin(profile) {
     State.adminProfile = profile;
 
     // تحديث الواجهة
@@ -2202,11 +2237,11 @@ const App = {
     $('#app').style.display = 'grid';
 
     // تسجيل دخول في السجل
-    await logAction('login', null, null, null, { email: profile.email });
+    logAction('login', null, null, null, { email: profile.email });
 
     // تحميل الباقات والإعدادات
-    await this.Plans.load();
-    await this.Settings.load();
+    this.Plans.load();
+    this.Settings.load();
 
     // إعداد Realtime
     this.Notifications.initRealtime();
