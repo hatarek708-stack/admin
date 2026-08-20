@@ -4495,8 +4495,19 @@ App.Settings = {
       } else {
         State.settings = {};
         (data || []).forEach(s => {
-          try { State.settings[s.key] = typeof s.value === 'string' ? JSON.parse(s.value) : s.value; }
-          catch (e) { State.settings[s.key] = s.value; }
+          // ✨ قيمة jsonb من Supabase تصل كـ JS value مباشرة (boolean, object, إلخ).
+          // لكن لو خُزِّنت سابقًا كـ JSON.stringify (string ملفوف)، نُحاول فكها.
+          let v = s.value;
+          if (typeof v === 'string') {
+            // قد تكون string عادية أو JSON string ملفوف
+            try {
+              const parsed = JSON.parse(v);
+              v = parsed;
+            } catch (_) {
+              // string عادية — اتركها كما هي
+            }
+          }
+          State.settings[s.key] = v;
         });
       }
       // تحديث بانر الصيانة
@@ -4575,13 +4586,22 @@ App.Settings = {
       updates.push({ key: 'carriers', value: carriers });
 
       // رفع كل التحديثات
+      // ✨ إصلاح مهم: نُمرِّر value كـ JS value مباشرة (ليس JSON.stringify)
+      // لأن عمود value من نوع jsonb، و Supabase client يحوّله تلقائيًا.
+      // لو مرّرناه كـ string، سيُخزَّن كـ "string" داخل jsonb ولن يستطيع
+      // shopevelo قراءته بشكل صحيح (سيراه string بدلاً من boolean/object).
       for (const u of updates) {
         const { error } = await State.supabase.from('platform_settings').upsert({
           key: u.key,
-          value: JSON.stringify(u.value),
+          value: u.value,            // ✨ JS value مباشرة (ليس string)
           updated_by: State.user.id
         });
         if (error) throw error;
+      }
+      // ✨ تحديث الكاش المحلي فورًا (كي تظهر التغييرات في admin-local نفسه)
+      State.settings = { ...State.settings };
+      for (const u of updates) {
+        State.settings[u.key] = u.value;
       }
       // إعادة تحميل الإعدادات
       await this.load();
