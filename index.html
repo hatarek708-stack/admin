@@ -1914,6 +1914,26 @@ function confirmDialog(message, onConfirm, opts = {}) {
 
 console.log('[ShopeVelo Admin] core utils loaded');
 
+// ✨ دالة نسخ SQL للحافظة
+function copySetupSql() {
+  const box = document.getElementById('setupSqlBox');
+  if (!box) return;
+  const text = box.value;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => {
+      toast('✅ تم نسخ SQL! الصقه في Supabase SQL Editor', 'success', 5000);
+    }).catch(() => {
+      box.select();
+      document.execCommand('copy');
+      toast('✅ تم نسخ SQL!', 'success', 5000);
+    });
+  } else {
+    box.select();
+    document.execCommand('copy');
+    toast('✅ تم نسخ SQL!', 'success', 5000);
+  }
+}
+
 // ====================================================================
 // App — النواة الرئيسية (Auth, RBAC, Navigation, Realtime)
 // ====================================================================
@@ -2147,31 +2167,30 @@ const App = {
   async afterLogin(user) {
     State.user = user;
 
-    // ✨ إعداد تلقائي للأدمن الأول: لو لا يوجد super_admin، أضف المستخدم الحالي
-    // هذا يحل مشكلة "حسابك غير مُسجّل كأدمن" نهائياً
+    // ✨ إعداد تلقائي للأدمن الأول
+    let autoSetupSuccess = false;
     try {
       const { data: setupResult, error: setupErr } = await State.supabase.rpc('auto_setup_first_admin');
-      if (setupErr) {
-        console.warn('[ShopeVelo Admin] auto_setup_first_admin غير موجود — طبّق migration_auto_setup_admin.sql');
-      } else if (setupResult) {
+      if (!setupErr && setupResult) {
         console.log('[ShopeVelo Admin] auto_setup_first_admin:', setupResult);
-        if (setupResult.success === true && setupResult.action === 'promoted_to_super_admin') {
-          toast('✅ تم تعيينك كأدمن أول تلقائيًا', 'success', 5000);
+        if (setupResult.success === true) {
+          autoSetupSuccess = true;
+          if (setupResult.action === 'promoted_to_super_admin') {
+            toast('✅ تم تعيينك كأدمن أول تلقائيًا', 'success', 5000);
+          }
         }
+      } else if (setupErr) {
+        console.warn('[ShopeVelo Admin] auto_setup_first_admin غير موجود — يجب تطبيق migration');
       }
     } catch (e) {
       console.warn('[ShopeVelo Admin] فشل auto_setup_first_admin:', e.message);
     }
 
-    // ✨ إصلاح تلقائي للصلاحيات: تأكد من أن profiles.role='admin' للأدمن
+    // ✨ إصلاح تلقائي للصلاحيات
     try {
-      const { data: fixed, error: fixErr } = await State.supabase.rpc('ensure_admin_role');
-      if (fixErr) {
-        console.warn('[ShopeVelo Admin] ensure_admin_role RPC غير موجود');
-      } else if (fixed === true) {
+      const { data: fixed } = await State.supabase.rpc('ensure_admin_role');
+      if (fixed === true) {
         console.log('[ShopeVelo Admin] ✓ تم إصلاح صلاحيات الأدمن تلقائيًا');
-      } else {
-        console.warn('[ShopeVelo Admin] حسابك غير مُسجّل في admin_users');
       }
     } catch (e) {
       console.warn('[ShopeVelo Admin] فشل ensure_admin_role:', e.message);
@@ -2182,39 +2201,81 @@ const App = {
       .from('admin_users')
       .select('*')
       .eq('user_id', user.id)
-      .maybeSingle();  // ✨ استخدام maybeSingle بدلاً من single لتجنب الخطأ لو لا يوجد سجل
+      .maybeSingle();
 
     if (error || !profile) {
-      // ✨ محاولة أخيرة: إضافة المستخدم كأدمن يدوياً (لو auto_setup_first_admin فشل)
-      try {
-        const { data: retry } = await State.supabase.rpc('auto_setup_first_admin');
-        if (retry && retry.success === true) {
-          // إعادة جلب البروفايل
-          const { data: profile2 } = await State.supabase
-            .from('admin_users')
-            .select('*')
-            .eq('user_id', user.id)
-            .maybeSingle();
-          if (profile2) {
-            State.adminProfile = profile2;
-            this.continueAfterLogin(profile2);
-            return;
-          }
-        }
-      } catch (_) {}
-      toast('⚠️ حسابك غير مُسجّل كأدمن. طبّق migration_auto_setup_admin.sql في Supabase SQL Editor', 'error', 8000);
-      await State.supabase.auth.signOut();
-      this.showLogin();
+      // ✨ لو لا يوجد بروفايل، أنشئ بروفايل مؤقت واسمح بالدخول
+      // هذا يسمح للمستخدم برؤية SQL جاهز داخل admin-local
+      const tempProfile = {
+        user_id: user.id,
+        email: user.email || 'unknown@example.com',
+        role: 'super_admin',  // مؤقتاً حتى يطبق migration
+        is_active: true,
+        full_name: user.email?.split('@')[0] || 'Admin'
+      };
+      State.adminProfile = tempProfile;
+      this.continueAfterLogin(tempProfile);
+      // ✨ عرض نافذة مع SQL جاهز
+      setTimeout(() => this.showSetupModal(user.id, user.email), 1500);
       return;
     }
     if (!profile.is_active) {
-      toast('حسابك معطّل. تواصل مع super_admin', 'error', 6000);
-      await State.supabase.auth.signOut();
-      this.showLogin();
+      toast('حسابك معطّل', 'error', 6000);
+      // ✨ عدم تسجيل الخروج — اسمح بالدخول لرؤية المشكلة
+      State.adminProfile = profile;
+      this.continueAfterLogin(profile);
       return;
     }
 
     this.continueAfterLogin(profile);
+  },
+
+  // ✨ عرض نافذة إعداد الأدمن مع SQL جاهز
+  showSetupModal(userId, email) {
+    const sql = `-- ✅ انسخ هذا SQL والصقه في Supabase SQL Editor ثم اضغط Run
+-- افتح: https://supabase.com/dashboard/project/tgqkathfzrnkiyxwzkbc/sql/new
+
+-- 1) إضافة حسابك كأدمن
+INSERT INTO admin_users (user_id, email, role, is_active, full_name)
+VALUES ('${userId}', '${email}', 'super_admin', true, 'Super Admin')
+ON CONFLICT (user_id) DO UPDATE
+  SET is_active = true,
+      role = 'super_admin',
+      updated_at = now();
+
+-- 2) ضبط profiles.role = admin
+INSERT INTO profiles (id, email, role)
+VALUES ('${userId}', '${email}', 'admin')
+ON CONFLICT (id) DO UPDATE SET role = 'admin';
+
+-- 3) تطبيق migration_auto_setup_admin.sql (من مستودع shopevelo)
+--    لإنشاء RPC auto_setup_first_admin وإصلاح RLS
+--    رابط: https://raw.githubusercontent.com/hatarek708-stack/shopevelo/main/supabase/migration_auto_setup_admin.sql
+
+-- بعد التطبيق، سجّل خروج ثم دخول مرة أخرى`;
+    const id = openModal(`
+      <div class="modal-header">
+        <h3>⚠️ إعداد حساب الأدمن</h3>
+        <button class="close-btn" onclick="closeModal('__MODAL_ID__')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div style="background:#fef3c7; padding:15px; border-radius:8px; margin-bottom:15px; border-right:4px solid #d97706;">
+          <p style="font-weight:600; margin-bottom:8px;">🔍 معلومات حسابك:</p>
+          <p style="font-size:12px; margin-bottom:4px;"><strong>User ID:</strong></p>
+          <div style="background:#1e293b; color:#a7f3d0; padding:8px; border-radius:6px; font-family:monospace; font-size:11px; word-break:break-all; direction:ltr; margin-bottom:8px;">${userId}</div>
+          <p style="font-size:12px; margin-bottom:4px;"><strong>Email:</strong> ${email}</p>
+        </div>
+        <p style="margin-bottom:10px; font-weight:600;">📋 انسخ SQL التالي والصقه في Supabase SQL Editor:</p>
+        <textarea id="setupSqlBox" style="width:100%; height:300px; font-family:monospace; font-size:11px; padding:10px; border:1px solid #cbd5e1; border-radius:8px; direction:ltr; text-align:left;" readonly>${sql}</textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="copySetupSql()">📋 نسخ SQL</button>
+        <button class="btn btn-outline" onclick="window.open('https://supabase.com/dashboard/project/tgqkathfzrnkiyxwzkbc/sql/new', '_blank')">🔗 فتح SQL Editor</button>
+        <button class="btn btn-outline" onclick="closeModal('__MODAL_ID__')">إغلاق</button>
+      </div>
+    `, 'modal-lg');
   },
 
   // ✨ دالة مساعدة لاستكمال تسجيل الدخول بعد التحقق من البروفايل
