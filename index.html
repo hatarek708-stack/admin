@@ -1107,7 +1107,6 @@
             <select id="filterStatus">
               <option value="">الكل</option>
               <option value="active">نشط</option>
-              <option value="trial">تجريبي</option>
               <option value="blocked">محظور</option>
               <option value="expired">منتهٍ</option>
               <option value="expiring">ينتهي قريبًا</option>
@@ -2725,7 +2724,6 @@ App.Users = {
       if (statusFilter === 'active') filtered = filtered.filter(s => !s.is_blocked && s.subscription_status === 'active' && s.subscription_end && new Date(s.subscription_end) > now);
       else if (statusFilter === 'blocked') filtered = filtered.filter(s => s.is_blocked);
       else if (statusFilter === 'expired') filtered = filtered.filter(s => s.subscription_end && new Date(s.subscription_end) < now && !s.is_blocked);
-      else if (statusFilter === 'trial') filtered = filtered.filter(s => !s.subscription_end || s.subscription_status === 'trial');
       else if (statusFilter === 'expiring') filtered = filtered.filter(s => {
         const d = daysUntil(s.subscription_end);
         return d !== null && d >= 0 && d <= 7;
@@ -2777,7 +2775,7 @@ App.Users = {
       const dLeft = daysUntil(s.subscription_end);
       let statusBadge;
       if (s.is_blocked) statusBadge = '<span class="badge badge-danger">محظور</span>';
-      else if (!s.subscription_end) statusBadge = '<span class="badge badge-info">تجريبي</span>';
+      else if (!s.subscription_end) statusBadge = '<span class="badge badge-success">نشط</span>';
       else if (new Date(s.subscription_end) < now) statusBadge = '<span class="badge badge-warning">منتهٍ</span>';
       else if (dLeft !== null && dLeft <= 7) statusBadge = `<span class="badge badge-warning">ينتهي خلال ${dLeft} يوم</span>`;
       else statusBadge = '<span class="badge badge-success">نشط</span>';
@@ -2870,7 +2868,7 @@ App.Users = {
           </div>
           <div class="form-field">
             <label>الباقة</label>
-            <select id="newStorePlan"><option value="">— بدون (تجريبي) —</option>${plansOpts}</select>
+            <select id="newStorePlan"><option value="">— بدون باقة —</option>${plansOpts}</select>
           </div>
           <div class="form-field">
             <label>مدة الاشتراك (أيام)</label>
@@ -2910,7 +2908,7 @@ App.Users = {
       phone: $('#newStorePhone').value.trim() || null,
       store_wilaya: $('#newStoreWilaya').value.trim() || null,
       plan_id: planId || null,
-      subscription_status: planId ? 'active' : 'trial',
+      subscription_status: 'active',
       subscription_start: now.toISOString(),
       subscription_end: planId ? end.toISOString() : null,
       is_blocked: false
@@ -2988,7 +2986,6 @@ App.Users = {
           <div class="form-field">
             <label>حالة الاشتراك</label>
             <select id="editStoreStatus">
-              <option value="trial" ${s.subscription_status === 'trial' ? 'selected' : ''}>تجريبي</option>
               <option value="active" ${s.subscription_status === 'active' ? 'selected' : ''}>نشط</option>
               <option value="expired" ${s.subscription_status === 'expired' ? 'selected' : ''}>منتهٍ</option>
               <option value="cancelled" ${s.subscription_status === 'cancelled' ? 'selected' : ''}>ملغى</option>
@@ -3108,7 +3105,7 @@ App.Users = {
       const plan = State.plans.find(p => p.id === s.plan_id);
       let status;
       if (s.is_blocked) status = 'محظور';
-      else if (!s.subscription_end) status = 'تجريبي';
+      else if (!s.subscription_end) status = 'نشط';
       else if (new Date(s.subscription_end) < now) status = 'منتهٍ';
       else status = 'نشط';
       const ownerProfile = State.profilesCache?.find(p => p.id === s.owner_id);
